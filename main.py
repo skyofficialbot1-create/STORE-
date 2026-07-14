@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SKY TopUp Telegram Bot — v3.0 (Enterprise Admin Panel & Automated Add Money)
+SKY TopUp Telegram Bot — v3.5 (Optimized OTP & Admin DB Backup/Restore System)
 ───────────────────────────────────────────────────────────────────────────
 """
 
@@ -14,6 +14,8 @@ import sqlite3
 import hashlib
 import re
 import secrets
+import asyncio
+import shutil
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -64,8 +66,8 @@ class Config:
     EMAIL_SENDING_ENABLED = bool(SMTP_EMAIL and SMTP_PASSWORD)
     DEV_MODE = not EMAIL_SENDING_ENABLED
     
-    # Admin System (Primary Admin ID - Change to your actual Telegram ID)
-    ADMIN_USER_ID = 7689218221  # আপনার রিয়েল টেলিগ্রাম আইডি এখানে দিন
+    # Admin System (Primary Admin ID)
+    ADMIN_USER_ID = 5904838487  # আপনার রিয়েল টেলিগ্রাম আইডি
 
 # ──────────────────────────────────────────────────────────────────────────
 # 📝 LOGGING
@@ -242,7 +244,7 @@ def is_admin(user_row) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🔐 SECURITY & EMAIL HELPERS
+# 🔐 SECURITY & EMAIL HELPERS (OPTIMIZED & ASYNC-READY)
 # ──────────────────────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
@@ -256,7 +258,8 @@ def is_valid_email(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email.strip()))
 
-def send_otp_email(to_email: str, otp: str) -> bool:
+def _sync_send_otp_email(to_email: str, otp: str) -> bool:
+    """Synchronous email sender intended to run inside a separate worker thread."""
     if Config.DEV_MODE:
         logger.info("🔧 DEV MODE — OTP for %s: %s", to_email, otp)
         return True
@@ -273,14 +276,21 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     
     try:
-        with smtplib.SMTP(Config.SMTP_SERVER, Config.SMTP_PORT, timeout=15) as server:
+        # Added optimized timeout to prevent indefinite blocking
+        with smtplib.SMTP(Config.SMTP_SERVER, Config.SMTP_PORT, timeout=8) as server:
+            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(Config.SMTP_EMAIL, Config.SMTP_PASSWORD)
             server.sendmail(Config.SMTP_EMAIL, to_email, msg.as_string())
         return True
     except Exception as e:
-        logger.error("❌ Failed to send OTP: %s", e)
+        logger.error("❌ Failed to send OTP via SMTP: %s", e)
         return False
+
+async def send_otp_email_async(to_email: str, otp: str) -> bool:
+    """Non-blocking wrapper that runs the SMTP request in a background thread."""
+    return await asyncio.to_thread(_sync_send_otp_email, to_email, otp)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -347,6 +357,7 @@ ORDER_DETAILS_STATE = 100
 ADD_MONEY_AMOUNT, ADD_MONEY_TRX = range(10, 12)
 ADMIN_SET_BAL_ID, ADMIN_SET_BAL_AMT = range(20, 22)
 ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_DESC, ADMIN_ADD_PROD_OPTS = range(30, 34)
+ADMIN_RESTORE_DB_STATE = 40  # রিস্টোর ডাটাবেজ স্টেট
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -408,14 +419,27 @@ async def reg_receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      (str(update.effective_user.id), otp, expires_at))
     
     context.user_data["reg_email"] = email
-    send_otp_email(email, otp)
     
-    await update.message.reply_text(
-        f"📬 <b>OTP পাঠানো হয়েছে!</b>\n\n"
-        f"আপনার জিমেইলে পাঠানো ৬ ডিজিটের ওটিপিটি নিচে লিখুন:",
-        parse_mode=ParseMode.HTML
-    )
-    return REG_OTP
+    # Send processing status first so that user is not left waiting
+    status_msg = await update.message.reply_text("⏳ <i>আপনার মেইলে ওটিপি (OTP) পাঠানো হচ্ছে... অনুগ্রহ করে একটু অপেক্ষা করুন।</i>", parse_mode=ParseMode.HTML)
+    
+    # Async calling to send SMTP in the background
+    success = await send_otp_email_async(email, otp)
+    
+    if success:
+        await status_msg.edit_text(
+            f"📬 <b>OTP পাঠানো হয়েছে!</b>\n\n"
+            f"আপনার জিমেইলে পাঠানো ৬ ডিজিটের ওটিপিটি নিচে লিখুন:",
+            parse_mode=ParseMode.HTML
+        )
+        return REG_OTP
+    else:
+        await status_msg.edit_text(
+            "❌ <b>ওটিপি পাঠাতে ব্যর্থ হয়েছে!</b>\n"
+            "অনুগ্রহ করে ইমেইল এড্রেসটি চেক করুন অথবা এডমিনের সাথে যোগাযোগ করুন। আবার চেষ্টা করুন:",
+            parse_mode=ParseMode.HTML
+        )
+        return REG_EMAIL
 
 
 async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -751,7 +775,7 @@ async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🛠️ ENTERPRISE ADMIN PANEL & CONTROLS
+# 🛠️ ENTERPRISE ADMIN PANEL & CONTROLS (WITH DB BACKUP / RESTORE)
 # ──────────────────────────────────────────────────────────────────────────
 
 async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -778,6 +802,10 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
             InlineKeyboardButton("📦 নতুন প্রোডাক্ট যোগ করুন", callback_data="adm_product_add")
         ],
         [
+            InlineKeyboardButton("📤 Backup Database", callback_data="adm_backup_db"),
+            InlineKeyboardButton("📥 Restore Database", callback_data="adm_restore_db")
+        ],
+        [
             InlineKeyboardButton(m_btn_text, callback_data="adm_toggle_maintenance")
         ],
         [InlineKeyboardButton("⬅️ প্রধান মেন্যু", callback_data="back_main")]
@@ -790,7 +818,8 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"👥 মোট ইউজার: {users_count} জন\n"
         f"⏳ পেন্ডিং অর্ডার: {pending_orders} টি\n"
         f"💵 পেন্ডিং ডিপোজিট: {pending_deposits} টি\n"
-        f"⚙️ মেইনটেনেন্স মোড: <b>{m_mode}</b>",
+        f"⚙️ মেইনটেনেন্স মোড: <b>{m_mode}</b>\n"
+        f"💾 ব্যাকআপ অ্যান্ড রিস্টোর ডাটাবেজ সিস্টেম সচল আছে।",
         InlineKeyboardMarkup(keyboard)
     )
 
@@ -812,6 +841,46 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
             conn.execute("UPDATE settings SET value = ? WHERE key = 'maintenance_mode'", (current,))
         await show_admin_panel_ui(update, context)
         
+    elif data == "adm_backup_db":
+        backup_file = f"backup_{int(datetime.now().timestamp())}.db"
+        try:
+            # Safely clone SQLite database using backup api
+            src = sqlite3.connect(Config.DB_PATH)
+            dst = sqlite3.connect(backup_file)
+            with dst:
+                src.backup(dst)
+            src.close()
+            dst.close()
+            
+            # Send file to admin
+            with open(backup_file, "rb") as doc:
+                await context.bot.send_document(
+                    chat_id=Config.ADMIN_USER_ID,
+                    document=doc,
+                    filename=os.path.basename(Config.DB_PATH),
+                    caption=f"📂 <b>SKY TOPUP DATABASE BACKUP</b>\n\n"
+                            f"📅 জেনারেট টাইম: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            f"⚠️ এই ফাইলটি সুরক্ষিত রাখুন। যেকোনো প্রয়োজনে ডাটাবেজ রিস্টোর করতে এটি ব্যবহার করা যাবে।",
+                    parse_mode=ParseMode.HTML
+                )
+            # Remove temp file
+            os.remove(backup_file)
+            await query.message.reply_text("✅ ডাটাবেজ ব্যাকআপ সফল হয়েছে এবং আপনার ইনবক্সে ফাইলটি পাঠানো হয়েছে।")
+        except Exception as e:
+            logger.error(f"DB Backup failed: {e}")
+            await query.message.reply_text(f"❌ ব্যাকআপ করতে ত্রুটি হয়েছে: {str(e)}")
+
+    elif data == "adm_restore_db":
+        await query.message.reply_text(
+            "📥 <b>ডাটাবেজ রিস্টোর সিস্টেম</b>\n\n"
+            "আপনার ব্যাকআপ করা ডাটাবেজ ফাইলটি (<code>.db</code>) এখানে আপলোড / সেন্ড করুন।\n"
+            "⚠️ <i>সতর্কতা: এটি করলে বর্তমানের সব ডাটা মুছে পূর্বের ব্যাকআপ ডাটা যুক্ত হবে!</i>\n\n"
+            "প্রক্রিয়া বাতিল করতে /cancel টাইপ করুন।"
+        )
+        # We start the conversation inside the admin_restore conversation handler.
+        # So we return the state for the admin restore handler.
+        return ADMIN_RESTORE_DB_STATE
+
     elif data == "adm_view_orders":
         with db() as conn:
             orders = conn.execute("SELECT * FROM orders WHERE status = '⏳ Pending' LIMIT 5").fetchall()
@@ -972,6 +1041,58 @@ async def bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data.clear()
     await update.message.reply_text(f"✅ সফলভাবে ইউজারের নতুন ব্যালেন্স ৳{new_bal:.2f} সেট করা হয়েছে!")
+    return ConversationHandler.END
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 📥 ADMIN RESTORE DATABASE PROCESS
+# ──────────────────────────────────────────────────────────────────────────
+
+async def start_db_restore_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_row = get_user(str(update.effective_user.id))
+    if not is_admin(user_row):
+        await update.message.reply_text("❌ অ্যাক্সেস ডিনাইড!")
+        return ConversationHandler.END
+        
+    await update.message.reply_text("📥 রিস্টোর করতে ব্যাকআপ ফাইলটি (.db) পাঠান:")
+    return ADMIN_RESTORE_DB_STATE
+
+async def db_file_restore_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_row = get_user(str(update.effective_user.id))
+    if not is_admin(user_row):
+        return ConversationHandler.END
+        
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".db"):
+        await update.message.reply_text("❌ অকার্যকর ফাইল ফরম্যাট! দয়া করে একটি সঠিক <b>.db</b> ফাইল পাঠান:")
+        return ADMIN_RESTORE_DB_STATE
+        
+    status_msg = await update.message.reply_text("⏳ <i>ডাটাবেজ ফাইলটি ডাউনলোড এবং ভেরিফাই করা হচ্ছে...</i>", parse_mode=ParseMode.HTML)
+    
+    try:
+        # Download file
+        file_obj = await context.bot.get_file(doc.file_id)
+        temp_path = "temp_restore.db"
+        await file_obj.download_to_drive(temp_path)
+        
+        # Connection check (Verify if the uploaded file is a valid sqlite database)
+        try:
+            test_conn = sqlite3.connect(temp_path)
+            test_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            test_conn.close()
+        except Exception:
+            os.remove(temp_path)
+            await status_msg.edit_text("❌ অকার্যকর ডাটাবেজ ফাইল! আপলোড করা ফাইলটি সঠিক SQLite ডাটাবেজ নয়।")
+            return ADMIN_RESTORE_DB_STATE
+            
+        # Stop DB activity, swap file
+        shutil.copyfile(temp_path, Config.DB_PATH)
+        os.remove(temp_path)
+        
+        await status_msg.edit_text("✅ <b>ডাটাবেজ সফলভাবে রিস্টোর করা হয়েছে!</b>\n\nইউজারদের ব্যালেন্স, রেকর্ড এবং সেটিংস সফলভাবে রিসেট করা হয়েছে।", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await status_msg.edit_text(f"❌ ডাটাবেজ রিস্টোর করতে ব্যর্থ হয়েছে! ভুল: {str(e)}")
+        
     return ConversationHandler.END
 
 
@@ -1179,11 +1300,21 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)]
     )
     
+    # Admin DB Restore Handler
+    admin_restore_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_callback_router, pattern="^adm_restore_db$")],
+        states={
+            ADMIN_RESTORE_DB_STATE: [MessageHandler(filters.Document.ALL, db_file_restore_received)]
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)]
+    )
+    
     app.add_handler(reg_handler)
     app.add_handler(order_handler)
     app.add_handler(deposit_handler)
     app.add_handler(admin_balance_handler)
     app.add_handler(admin_product_handler)
+    app.add_handler(admin_restore_handler)
     
     # Unified Query Handlers
     app.add_handler(CallbackQueryHandler(admin_callback_router, pattern=r"^adm_"))
