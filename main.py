@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SKY TopUp Telegram Bot — v2.5 (Fully Integrated & Premium UI)
-───────────────────────────────────────────────────────────
+SKY TopUp Telegram Bot — v3.0 (Enterprise Admin Panel & Automated Add Money)
+───────────────────────────────────────────────────────────────────────────
 """
 
 import logging
@@ -33,13 +33,12 @@ from telegram.ext import (
 )
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🎛️ CONFIGURATION (Integrated from .env)
+# 🎛️ CONFIGURATION
 # ──────────────────────────────────────────────────────────────────────────
 
 class Config:
     """Centralized configuration management with hardcoded defaults."""
     
-    # Telegram Bot Token
     BOT_TOKEN = os.getenv("BOT_TOKEN", "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk")
     
     # SMTP / Email Configuration
@@ -53,20 +52,20 @@ class Config:
     NAGAD_NUMBER = os.getenv("NAGAD_NUMBER", "01748506069")
     ROCKET_NUMBER = os.getenv("ROCKET_NUMBER", "01742958563")
     
+    MIN_DEPOSIT = 50.0  # সর্বনিম্ন ডিপোজিট
+    
     # OTP & Security
     OTP_VALID_MINUTES = 5
     MAX_OTP_ATTEMPTS = 3
     MIN_PASSWORD_LENGTH = 6
     
-    # Database path
     DB_PATH = os.getenv("DB_PATH", "skytopup.db")
     
-    # Feature flags
     EMAIL_SENDING_ENABLED = bool(SMTP_EMAIL and SMTP_PASSWORD)
     DEV_MODE = not EMAIL_SENDING_ENABLED
     
-    # Admin
-    ADMIN_USER_ID = 1
+    # Admin System (Primary Admin ID - Change to your actual Telegram ID)
+    ADMIN_USER_ID = 7689218221  # আপনার রিয়েল টেলিগ্রাম আইডি এখানে দিন
 
 # ──────────────────────────────────────────────────────────────────────────
 # 📝 LOGGING
@@ -85,7 +84,6 @@ logger = logging.getLogger("SkyTopUp")
 
 @contextmanager
 def db():
-    """Context-managed SQLite connection with row factory."""
     conn = sqlite3.connect(Config.DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -102,15 +100,14 @@ def db():
 
 
 def init_db():
-    """Initialize all database tables."""
     db_dir = os.path.dirname(Config.DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
-        logger.info(f"Created directory: {db_dir}")
     
     with db() as conn:
         c = conn.cursor()
         
+        # Users table
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,6 +125,7 @@ def init_db():
             )
         """)
         
+        # OTP codes
         c.execute("""
             CREATE TABLE IF NOT EXISTS otp_codes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +138,7 @@ def init_db():
             )
         """)
         
+        # Orders
         c.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,6 +155,7 @@ def init_db():
             )
         """)
         
+        # Products
         c.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,6 +168,31 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Add Money Requests Table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS deposit_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT UNIQUE NOT NULL,
+                telegram_id TEXT NOT NULL,
+                method TEXT NOT NULL,
+                amount REAL NOT NULL,
+                trx_id TEXT NOT NULL,
+                status TEXT DEFAULT '⏳ Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Settings Table for Maintenance Mode
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        
+        # Default Settings
+        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', 'OFF')")
         
         # Seed default products
         c.execute("SELECT COUNT(*) as cnt FROM products")
@@ -178,104 +203,58 @@ def init_db():
                      {"amount": "💎 ১০০ ডায়মন্ড", "price": 100},
                      {"amount": "💎 ৩১০ ডায়মন্ড", "price": 300},
                      {"amount": "💎 ৫২০ ডায়মন্ড", "price": 500},
-                     {"amount": "💎 ১০৬০ ডায়মন্ড", "price": 1000},
-                 ])),
-                ("PUBG Mobile UC", "game", "🔫", "PUBG মোবাইল UC টপ-আপ",
-                 json.dumps([
-                     {"amount": "🔫 ৬০ UC", "price": 120},
-                     {"amount": "🔫 ৩২৫ UC", "price": 600},
-                     {"amount": "🔫 ৬৬০ UC", "price": 1150},
                  ])),
                 ("Netflix Premium", "subscribe", "🎬", "নেটফ্লিক্স প্রিমিয়াম সাবস্ক্রিপশন",
                  json.dumps([
                      {"amount": "🎬 ১ মাস স্ক্রিন", "price": 200},
                      {"amount": "🎬 ৩ মাস প্রিমিয়াম", "price": 500},
-                     {"amount": "🎬 ১২ মাস প্রিমিয়াম", "price": 1800},
-                 ])),
-                ("YouTube Premium", "subscribe", "▶️", "ইউটিউব প্রিমিয়াম সাবস্ক্রিপশন",
-                 json.dumps([
-                     {"amount": "▶️ ১ মাস প্রিমিয়াম", "price": 120},
-                     {"amount": "▶️ ১২ মাস প্রিমিয়াম", "price": 1200},
-                 ])),
-                ("Spotify Premium", "subscribe", "🎵", "স্পটিফাই প্রিমিয়াম সাবস্ক্রিপশন",
-                 json.dumps([
-                     {"amount": "🎵 ১ মাস প্রিমিয়াম", "price": 130},
-                     {"amount": "🎵 ৩ মাস প্রিমিয়াম", "price": 350},
-                 ])),
-                ("Crunchyroll Premium", "subscribe", "🎌", "ক্রাঞ্চিরোল প্রিমিয়াম সাবস্ক্রিপশন",
-                 json.dumps([
-                     {"amount": "🎌 ১ মাস মেম্বারশিপ", "price": 150},
-                     {"amount": "🎌 ৩ মাস মেম্বারশিপ", "price": 400},
-                 ])),
+                 ]))
             ]
             c.executemany(
                 "INSERT INTO products (name, category, icon, description, options) VALUES (?, ?, ?, ?, ?)",
                 default_products,
             )
-            logger.info("✅ Seeded %d default products", len(default_products))
     
-    logger.info("📦 Database initialized at %s", Config.DB_PATH)
+    logger.info("📦 Database initialized.")
 
 
 def get_user(telegram_id: str) -> Optional[sqlite3.Row]:
     with db() as conn:
-        return conn.execute(
-            "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-
+        return conn.execute("SELECT * FROM users WHERE telegram_id = ?", (str(telegram_id),)).fetchone()
 
 def get_user_by_email(email: str) -> Optional[sqlite3.Row]:
     with db() as conn:
-        return conn.execute(
-            "SELECT * FROM users WHERE email = ?", (email,)
-        ).fetchone()
-
+        return conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
 def update_balance(telegram_id: str, amount: float) -> None:
     with db() as conn:
-        conn.execute(
-            "UPDATE users SET balance = balance + ? WHERE telegram_id = ?",
-            (amount, telegram_id),
-        )
+        conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (amount, str(telegram_id)))
 
-
-def update_last_login(telegram_id: str) -> None:
+def is_maintenance() -> bool:
     with db() as conn:
-        conn.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE telegram_id = ?",
-            (telegram_id,),
-        )
+        row = conn.execute("SELECT value FROM settings WHERE key = 'maintenance_mode'").fetchone()
+        return row and row["value"] == "ON"
+
+def is_admin(user_row) -> bool:
+    if not user_row:
+        return False
+    return int(user_row["telegram_id"]) == Config.ADMIN_USER_ID or user_row["is_admin"] == 1
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🔐 SECURITY HELPERS
+# 🔐 SECURITY & EMAIL HELPERS
 # ──────────────────────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
     salt = "SKY_TOPUP_2024_v2"
     return hashlib.sha256((salt + password).encode()).hexdigest()
 
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return hash_password(plain_password) == hashed_password
-
-
 def generate_otp() -> str:
     return str(secrets.randbelow(900000) + 100000)
-
 
 def is_valid_email(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email.strip()))
-
-
-def is_admin(user_row) -> bool:
-    return user_row and (user_row["id"] == Config.ADMIN_USER_ID or user_row["is_admin"] == 1)
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# 📧 EMAIL SERVICE
-# ──────────────────────────────────────────────────────────────────────────
 
 def send_otp_email(to_email: str, otp: str) -> bool:
     if Config.DEV_MODE:
@@ -283,7 +262,6 @@ def send_otp_email(to_email: str, otp: str) -> bool:
         return True
     
     if not Config.EMAIL_SENDING_ENABLED:
-        logger.warning("⚠️ SMTP not configured — cannot send email.")
         return False
     
     msg = MIMEMultipart("alternative")
@@ -291,12 +269,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     msg["To"] = to_email
     msg["Subject"] = "🔐 SKY TopUp — OTP Verification Code"
     
-    text_body = (
-        f"আপনার SKY TopUp OTP কোড: {otp}\n\n"
-        f"⏰ এই কোডটি {Config.OTP_VALID_MINUTES} মিনিটের জন্য কার্যকর থাকবে।\n"
-        f"🔒 নিরাপত্তার জন্য দয়া করে এটি কারো সাথে শেয়ার করবেন না।\n\n"
-        f"ধন্যবাদ,\nSKY TopUp টিম"
-    )
+    text_body = f"আপনার SKY TopUp OTP কোড: {otp}\n\n⏰ মেয়াদ: {Config.OTP_VALID_MINUTES} মিনিট।"
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     
     try:
@@ -304,15 +277,14 @@ def send_otp_email(to_email: str, otp: str) -> bool:
             server.starttls()
             server.login(Config.SMTP_EMAIL, Config.SMTP_PASSWORD)
             server.sendmail(Config.SMTP_EMAIL, to_email, msg.as_string())
-        logger.info("✅ OTP email sent to %s", to_email)
         return True
     except Exception as e:
-        logger.error("❌ Failed to send OTP email to %s: %s", to_email, e)
+        logger.error("❌ Failed to send OTP: %s", e)
         return False
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🎨 UI HELPERS (Polished and Made Premium)
+# 🎨 UI BUILDER
 # ──────────────────────────────────────────────────────────────────────────
 
 class UIBuilder:
@@ -340,37 +312,23 @@ class UIBuilder:
             ],
         ]
         if user_row and is_admin(user_row):
-            keyboard.append([InlineKeyboardButton("🛠️ অ্যাডমিন প্যানেল 🛠️", callback_data="admin")])
+            keyboard.append([InlineKeyboardButton("🛠️ অ্যাডমিন প্যানেল 🛠️", callback_data="admin_panel")])
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
     def back_button(callback_data: str = "back_main") -> InlineKeyboardMarkup:
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data=callback_data)]
-        ])
+        return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data=callback_data)]])
 
-# ──────────────────────────────────────────────────────────────────────────
-# 📨 MESSAGING HELPERS
-# ──────────────────────────────────────────────────────────────────────────
 
 async def smart_reply(update: Update, text: str, reply_markup=None):
-    kwargs = {
-        "text": text,
-        "parse_mode": ParseMode.HTML,
-        "reply_markup": reply_markup,
-    }
+    kwargs = {"text": text, "parse_mode": ParseMode.HTML, "reply_markup": reply_markup}
     if update.callback_query:
         await update.callback_query.message.reply_text(**kwargs)
     elif update.message:
         await update.message.reply_text(**kwargs)
 
-
 async def edit_or_reply(update: Update, text: str, reply_markup=None):
-    kwargs = {
-        "text": text,
-        "parse_mode": ParseMode.HTML,
-        "reply_markup": reply_markup,
-    }
+    kwargs = {"text": text, "parse_mode": ParseMode.HTML, "reply_markup": reply_markup}
     if update.callback_query:
         try:
             await update.callback_query.edit_message_text(**kwargs)
@@ -381,20 +339,32 @@ async def edit_or_reply(update: Update, text: str, reply_markup=None):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 👤 REGISTRATION FLOW
+# 👤 REGISTRATION & START FLOW
 # ──────────────────────────────────────────────────────────────────────────
 
 REG_EMAIL, REG_OTP, REG_PASSWORD, REG_CONFIRM_PASSWORD = range(4)
 ORDER_DETAILS_STATE = 100
+ADD_MONEY_AMOUNT, ADD_MONEY_TRX = range(10, 12)
+ADMIN_SET_BAL_ID, ADMIN_SET_BAL_AMT = range(20, 22)
+ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_DESC, ADMIN_ADD_PROD_OPTS = range(30, 34)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    existing = get_user(str(user.id))
     
-    if existing:
-        update_last_login(str(user.id))
-        user_row = get_user(str(user.id))
+    # Check Maintenance Mode (Except Admins)
+    user_row = get_user(str(user.id))
+    if is_maintenance() and not (user_row and is_admin(user_row)):
+        await update.message.reply_text(
+            "⚠️ <b>সিস্টেম রক্ষণাবেক্ষণ (Maintenance Mode) চলছে!</b>\n\n"
+            "বটের কাজ দ্রুত সচল করার চেষ্টা চলছে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত।",
+            parse_mode=ParseMode.HTML
+        )
+        return ConversationHandler.END
+
+    if user_row:
+        with db() as conn:
+            conn.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE telegram_id = ?", (str(user.id),))
         welcome = (
             f"⚡ <b>SKY TOPUP — PREMIUM BOT</b> ⚡\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -413,11 +383,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"হ্যালো, <b>{UIBuilder.safe_text(user.first_name or 'গ্রাহক')}</b>! 👋\n\n"
         f"আমাদের হাই-স্পিড টপ-আপ সার্ভিস ব্যবহার করতে হলে প্রথমে মাত্র ১ মিনিটে ইমেল ভেরিফিকেশন সম্পন্ন করুন।\n\n"
-        f"📌 <b>ভেরিফিকেশনের জন্য প্রয়োজন:</b>\n"
-        f" └ 📧 সচল জিমেইল আইডি (Gmail)\n"
-        f" └ 🔑 ওটিপি ভেরিফিকেশন (OTP Code)\n"
-        f" └ 🔐 নিজের পছন্দমতো স্ট্রং পাসওয়ার্ড\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👉 <b>শুরু করতে আপনার জিমেইল এড্রেসটি এখানে লিখুন:</b>"
     )
     await update.message.reply_text(welcome, parse_mode=ParseMode.HTML)
@@ -426,63 +391,30 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reg_receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email = update.message.text.strip().lower()
-    
     if not is_valid_email(email):
-        await update.message.reply_text(
-            "❌ <b>ভুল বা অবৈধ ইমেইল ফরম্যাট!</b>\n\n"
-            "অনুগ্রহ করে সঠিক ফরম্যাটে জিমেইল দিন।\n"
-            "যেমন: <code>username@gmail.com</code>\n\n"
-            "<i>(বাতিল করতে /cancel টাইপ করুন)</i>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("❌ <b>ভুল ইমেইল!</b> সঠিক জিমেইল দিন:")
         return REG_EMAIL
     
     if get_user_by_email(email):
-        await update.message.reply_text(
-            "⚠️ <b>দুঃখিত! এই ইমেইলটি ইতিমধ্যে ব্যবহৃত হয়েছে।</b>\n\n"
-            "• নতুন কোনো ইমেইল ব্যবহার করুন।\n"
-            "• অথবা যেকোনো প্রয়োজনে এডমিন সাপোর্টে যোগাযোগ করুন।",
-            parse_mode=ParseMode.HTML,
-        )
-        return ConversationHandler.END
+        await update.message.reply_text("⚠️ ইমেলটি ইতিমধ্যে ব্যবহৃত হয়েছে। অন্য মেইল দিন:")
+        return REG_EMAIL
     
     otp = generate_otp()
     expires_at = (datetime.utcnow() + timedelta(minutes=Config.OTP_VALID_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
     
     with db() as conn:
         conn.execute("DELETE FROM otp_codes WHERE telegram_id = ?", (str(update.effective_user.id),))
-        conn.execute(
-            "INSERT INTO otp_codes (telegram_id, otp_code, expires_at) VALUES (?, ?, ?)",
-            (str(update.effective_user.id), otp, expires_at),
-        )
+        conn.execute("INSERT INTO otp_codes (telegram_id, otp_code, expires_at) VALUES (?, ?, ?)",
+                     (str(update.effective_user.id), otp, expires_at))
     
     context.user_data["reg_email"] = email
-    sent = send_otp_email(email, otp)
+    send_otp_email(email, otp)
     
-    if sent and not Config.DEV_MODE:
-        await update.message.reply_text(
-            f"📬 <b>OTP পাঠানো হয়েছে!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"✅ আপনার ইমেইল: <code>{email}</code>\n"
-            f"একটি ৬-সংখ্যার ওটিপি কোড পাঠানো হয়েছে।\n\n"
-            f"⏳ <b>মেয়াদ:</b> {Config.OTP_VALID_MINUTES} মিনিট।\n"
-            f"🔒 নিরাপত্তার স্বার্থে ওটিপি কাউকে শেয়ার করবেন না।\n\n"
-            f"👇 <b>কোডটি নিচে টাইপ করুন:</b>",
-            parse_mode=ParseMode.HTML,
-        )
-    else:
-        # SMTP কনফিগার না থাকলে ডেভেলপারদের সুবিধার্থে OTP মেসেজে দেখাবে
-        await update.message.reply_text(
-            f"⚙️ <b>টেস্টিং / ডেভেলপার মোড</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📧 <b>ইমেইল:</b> <code>{email}</code>\n"
-            f"🔑 <b>সিস্টেম OTP কোড:</b> <code>{otp}</code>\n\n"
-            f"⏳ <b>মেয়াদ:</b> {Config.OTP_VALID_MINUTES} মিনিট।\n\n"
-            f"⚠️ <i>বিকাশকারী সতর্কতা: জিমেইল এবং অ্যাপ পাসওয়ার্ড পুরোপুরি সচল করা রয়েছে। প্রোডাকশন টেস্ট হিসেবে ওটিপি সাবমিট করুন।</i>\n\n"
-            f"👇 <b>কোডটি নিচে টাইপ করুন:</b>",
-            parse_mode=ParseMode.HTML,
-        )
-    
+    await update.message.reply_text(
+        f"📬 <b>OTP পাঠানো হয়েছে!</b>\n\n"
+        f"আপনার জিমেইলে পাঠানো ৬ ডিজিটের ওটিপিটি নিচে লিখুন:",
+        parse_mode=ParseMode.HTML
+    )
     return REG_OTP
 
 
@@ -492,89 +424,29 @@ async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     with db() as conn:
         row = conn.execute(
-            """SELECT otp_code, expires_at, attempt_count, id
-               FROM otp_codes 
-               WHERE telegram_id = ? AND is_used = 0
-               ORDER BY created_at DESC LIMIT 1""",
-            (telegram_id,),
+            "SELECT * FROM otp_codes WHERE telegram_id = ? AND is_used = 0 ORDER BY created_at DESC LIMIT 1",
+            (telegram_id,)
         ).fetchone()
     
-    if not row:
-        await update.message.reply_text(
-            "❌ <b>ওটিপি পাওয়া যায়নি!</b>\n\nদয়া করে /start চাপুন এবং নতুন করে চেষ্টা করুন।",
-            parse_mode=ParseMode.HTML,
-        )
-        return ConversationHandler.END
-    
-    if row["expires_at"]:
-        expires = datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S")
-        if datetime.utcnow() > expires:
-            await update.message.reply_text(
-                "⌛ <b>ওটিপি কোডের মেয়াদ শেষ হয়ে গেছে!</b>\n\nআবার নতুন করে শুরু করতে /start দিন।",
-                parse_mode=ParseMode.HTML,
-            )
-            return ConversationHandler.END
-    
-    attempts = row["attempt_count"] + 1
-    with db() as conn:
-        conn.execute("UPDATE otp_codes SET attempt_count = ? WHERE id = ?", (attempts, row["id"]))
-    
-    if attempts > Config.MAX_OTP_ATTEMPTS:
-        with db() as conn:
-            conn.execute("UPDATE otp_codes SET is_used = 1 WHERE id = ?", (row["id"],))
-        await update.message.reply_text(
-            "❌ <b>অতিরিক্ত ভুলের কারণে ওটিপি বাতিল করা হয়েছে!</b>\n\nনিরাপত্তাজনিত কারণে আবার শুরু করতে /start দিন।",
-            parse_mode=ParseMode.HTML,
-        )
-        return ConversationHandler.END
-    
-    if entered_otp != row["otp_code"]:
-        remaining = Config.MAX_OTP_ATTEMPTS - attempts
-        await update.message.reply_text(
-            f"❌ <b>ভুল ওটিপি কোড!</b>\n\n"
-            f"আপনার আর মাত্র {remaining} বার সুযোগ রয়েছে।\n"
-            f"সঠিক ওটিপি কোডটি পুনরায় টাইপ করুন:",
-            parse_mode=ParseMode.HTML,
-        )
+    if not row or entered_otp != row["otp_code"]:
+        await update.message.reply_text("❌ <b>ভুল ওটিপি!</b> আবার চেষ্টা করুন:")
         return REG_OTP
     
     with db() as conn:
         conn.execute("UPDATE otp_codes SET is_used = 1 WHERE id = ?", (row["id"],))
     
-    await update.message.reply_text(
-        "✅ <b>ইমেইল সফলভাবে ভেরিফাইড হয়েছে!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🔐 <b>একটি নিরাপদ পাসওয়ার্ড সেট করুন:</b>\n"
-        f"└ ন্যূনতম {Config.MIN_PASSWORD_LENGTH} অক্ষরের হতে হবে।\n\n"
-        "👇 <b>পাসওয়ার্ডটি নিচে লিখুন:</b>",
-        parse_mode=ParseMode.HTML,
-    )
+    await update.message.reply_text("✅ ভেরিফাইড! এবার আপনার অ্যাকাউন্টের জন্য একটি নতুন পাসওয়ার্ড দিন (Min 6 letters):")
     return REG_PASSWORD
 
 
 async def reg_receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text.strip()
-    
     if len(password) < Config.MIN_PASSWORD_LENGTH:
-        await update.message.reply_text(
-            f"❌ <b>পাসওয়ার্ডটি অত্যন্ত ছোট!</b>\n\n"
-            f"নিরাপত্তার স্বার্থে ন্যূনতম {Config.MIN_PASSWORD_LENGTH} অক্ষরের পাসওয়ার্ড দিন:\n"
-            f"আবার পাসওয়ার্ড লিখুন:",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("❌ পাসওয়ার্ড অত্যন্ত ছোট! আবার দিন:")
         return REG_PASSWORD
     
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-    
     context.user_data["reg_password"] = password
-    await update.message.reply_text(
-        "🔐 <b>পাসওয়ার্ড নিশ্চিত করুন:</b>\n\n"
-        "পাসওয়ার্ডটি পুনরায় নিচে টাইপ করুন 👇",
-        parse_mode=ParseMode.HTML,
-    )
+    await update.message.reply_text("🔐 পাসওয়ার্ডটি নিশ্চিত করতে পুনরায় টাইপ করুন:")
     return REG_CONFIRM_PASSWORD
 
 
@@ -582,116 +454,39 @@ async def reg_confirm_password(update: Update, context: ContextTypes.DEFAULT_TYP
     confirm_pass = update.message.text.strip()
     password = context.user_data.get("reg_password")
     
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-    
     if confirm_pass != password:
-        await update.message.reply_text(
-            "❌ <b>দুঃখিত, পাসওয়ার্ড দুইটি মেলেনি!</b>\n\n"
-            "অনুগ্রহ করে নতুন করে পাসওয়ার্ডটি দিন:",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("❌ পাসওয়ার্ড মেলেনি! পুনরায় পাসওয়ার্ড দিন:")
         return REG_PASSWORD
     
-    email = context.user_data.get("reg_email", "")
+    email = context.user_data.get("reg_email")
     telegram_id = str(update.effective_user.id)
-    name = update.effective_user.first_name or update.effective_user.username or "User"
+    name = update.effective_user.first_name or "User"
     
-    try:
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO users (telegram_id, email, password, name) VALUES (?, ?, ?, ?)",
-                (telegram_id, email, hash_password(password), name),
-            )
-        logger.info("✅ New user registered: %s (%s)", telegram_id, email)
-    except sqlite3.IntegrityError:
-        await update.message.reply_text(
-            "❌ রেজিস্ট্রেশন ব্যর্থ হয়েছে। আবার শুরু করতে /start দিন।",
-            parse_mode=ParseMode.HTML,
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO users (telegram_id, email, password, name, balance) VALUES (?, ?, ?, ?, 10.0)",
+            (telegram_id, email, hash_password(password), name)
         )
-        return ConversationHandler.END
     
     context.user_data.clear()
-    update_balance(telegram_id, 10.0)  # ওয়েলকাম বোনাস
+    await update.message.reply_text("🎉 <b>রেজিস্ট্রেশন সফল!</b> আপনি ১০ টাকা স্বাগতম বোনাস পেয়েছেন।")
     
-    await smart_reply(
-        update,
-        f"🎉 <b>অভিনন্দন! রেজিস্ট্রেশন সফল হয়েছে!</b> 🎉\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👤 <b>নাম:</b> {UIBuilder.safe_text(name)}\n"
-        f"📧 <b>ইমেইল:</b> <code>{email}</code>\n"
-        f"🎁 <b>ওয়েলকাম বোনাস:</b> ৳ ১০.০০ (আপনার ব্যালেন্সে যোগ করা হয়েছে!)\n\n"
-        f"সবচেয়ে কম মূল্যে টপ-আপের আনন্দ উপভোগ করুন! 👇",
+    user_row = get_user(telegram_id)
+    await update.message.reply_text(
+        "✨ নিচের মেন্যু ব্যবহার করে বটের সুযোগ সুবিধা নিন:",
+        reply_markup=UIBuilder.main_menu(user_row)
     )
-    await show_main_menu_ui(update, context)
     return ConversationHandler.END
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await smart_reply(update, "❌ <b>চলমান প্রক্রিয়াটি বাতিল করা হয়েছে।</b>\n\nপ্রধান মেন্যুতে যেতে /start লিখুন।")
+    await update.message.reply_text("❌ চলমান প্রক্রিয়া বাতিল করা হয়েছে।")
     return ConversationHandler.END
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🏠 MAIN MENU
-# ──────────────────────────────────────────────────────────────────────────
-
-async def show_main_menu_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_row = get_user(str(update.effective_user.id))
-    if not user_row:
-        await smart_reply(update, "⚠️ সিস্টেম ত্রুটি। সেশন চালু করতে অনুগ্রহ করে /start দিন।")
-        return
-    
-    welcome = (
-        f"⚡ <b>SKY TOPUP — PREMIUM BOT</b> ⚡\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👋 স্বাগতম, <b>{UIBuilder.safe_text(user_row['name'])}</b>!\n\n"
-        f"💳 <b>ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
-        f"🏅 <b>র‍্যাংক:</b> {user_row['rank']}\n"
-        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']} pts\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✨ নিচের ইন্টারেক্টিভ মেন্যু থেকে অপশন নির্বাচন করুন:"
-    )
-    await edit_or_reply(update, welcome, UIBuilder.main_menu(user_row))
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# 🔄 CALLBACK ROUTER
-# ──────────────────────────────────────────────────────────────────────────
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    
-    routes = {
-        "back_main": show_main_menu_ui,
-        "shop": show_categories_ui,
-        "back_shop": show_categories_ui,
-        "balance": show_balance_ui,
-        "orders": show_orders_ui,
-        "recharge": show_recharge_ui,
-        "profile": show_profile_ui,
-        "settings": show_settings_ui,
-        "help": show_help_ui,
-        "admin": show_admin_panel_ui,
-    }
-    
-    if data in routes:
-        await routes[data](update, context)
-    elif data.startswith("category_"):
-        await show_products_ui(update, context, data.replace("category_", ""))
-    elif data.startswith("product_"):
-        await select_package_ui(update, context, int(data.replace("product_", "")))
-    elif data.startswith("recharge_"):
-        await show_recharge_instructions_ui(update, context, data.replace("recharge_", ""))
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# 🛒 SHOP
+# 🛒 SHOPPING & PRODUCTS
 # ──────────────────────────────────────────────────────────────────────────
 
 async def show_categories_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -700,39 +495,21 @@ async def show_categories_ui(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("🍿 ওটিটি ও সাবস্ক্রিপশন", callback_data="category_subscribe")],
         [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")],
     ]
-    await edit_or_reply(
-        update,
-        "📂 <b>প্রোডাক্ট ক্যাটাগরি</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "নিচে থেকে আপনার পছন্দের প্রোডাক্টের ধরণ নির্বাচন করুন 👇",
-        InlineKeyboardMarkup(keyboard),
-    )
+    await edit_or_reply(update, "📂 <b>প্রোডাক্ট ক্যাটাগরি</b>\n\nপছন্দের ক্যাটাগরি বেছে নিন:", InlineKeyboardMarkup(keyboard))
 
 
 async def show_products_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, category: str):
     with db() as conn:
-        products = conn.execute(
-            "SELECT * FROM products WHERE category = ? AND is_active = 1", (category,)
-        ).fetchall()
+        products = conn.execute("SELECT * FROM products WHERE category = ? AND is_active = 1", (category,)).fetchall()
     
     if not products:
-        await edit_or_reply(update, "⚠️ <b>দুঃখিত! এই ক্যাটাগরিতে বর্তমানে কোনো প্রোডাক্ট স্টক নেই।</b>", UIBuilder.back_button("back_shop"))
+        await edit_or_reply(update, "⚠️ বর্তমানে এই ক্যাটাগরিতে কোনো প্রোডাক্ট নেই।", UIBuilder.back_button("shop"))
         return
     
-    keyboard = [
-        [InlineKeyboardButton(f"{p['icon']} {p['name']}", callback_data=f"product_{p['id']}")]
-        for p in products
-    ]
-    keyboard.append([InlineKeyboardButton("⬅️ পিছনে যান", callback_data="back_shop")])
+    keyboard = [[InlineKeyboardButton(f"{p['icon']} {p['name']}", callback_data=f"product_{p['id']}")] for p in products]
+    keyboard.append([InlineKeyboardButton("⬅️ পিছনে যান", callback_data="shop")])
     
-    category_names = {"game": "🎮 গেম টপ-আপ স্টোর", "subscribe": "🎬 সাবস্ক্রিপশন প্ল্যানসমূহ"}
-    await edit_or_reply(
-        update,
-        f"📦 <b>{category_names.get(category, category)}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"আপনার কাঙ্ক্ষিত প্রোডাক্ট নির্বাচন করুন 👇",
-        InlineKeyboardMarkup(keyboard),
-    )
+    await edit_or_reply(update, "📦 <b>প্রোডাক্ট লিস্ট</b>\n\nআপনার কাঙ্ক্ষিত প্রোডাক্টটি সিলেক্ট করুন:", InlineKeyboardMarkup(keyboard))
 
 
 async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int):
@@ -740,23 +517,22 @@ async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     
     if not product:
-        await edit_or_reply(update, "❌ <b>প্রোডাক্টটি খুঁজে পাওয়া যায়নি!</b>", UIBuilder.back_button("back_shop"))
+        await edit_or_reply(update, "❌ প্রোডাক্ট পাওয়া যায়নি!", UIBuilder.back_button("shop"))
         return
     
     options = json.loads(product["options"])
     keyboard = [
-        [InlineKeyboardButton(f"{opt['amount']} ➔ ৳{opt['price']:,}", callback_data=f"package_{product_id}_{idx}")]
+        [InlineKeyboardButton(f"{opt['amount']} ➔ ৳{opt['price']}", callback_data=f"package_{product_id}_{idx}")]
         for idx, opt in enumerate(options)
     ]
-    keyboard.append([InlineKeyboardButton("⬅️ পিছনে যান", callback_data="back_shop")])
+    keyboard.append([InlineKeyboardButton("⬅️ পিছনে যান", callback_data="shop")])
     
     await edit_or_reply(
         update,
-        f"⚡ <b>{product['icon']} {product['name']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 <b>বিবরণ:</b> {product['description'] or 'সেরা মূল্যে ও দ্রুত ডেলিভারি।'}\n\n"
-        f"ডেলিভারি নিতে যেকোনো একটি প্যাকেজ বেছে নিন 👇",
-        InlineKeyboardMarkup(keyboard),
+        f"⚡ <b>{product['icon']} {product['name']}</b>\n\n"
+        f"📌 <b>বিবরণ:</b> {product['description']}\n\n"
+        f"নিচ থেকে প্যাকেজ নির্বাচন করুন:",
+        InlineKeyboardMarkup(keyboard)
     )
 
 
@@ -769,38 +545,22 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     
     parts = query.data.split("_")
-    if len(parts) != 3:
-        await query.message.reply_text("❌ সিস্টেমে ভুল তথ্য প্রবেশ করানো হয়েছে!")
-        return ConversationHandler.END
-    
-    _, product_id_str, package_idx_str = parts
-    product_id, package_idx = int(product_id_str), int(package_idx_str)
+    product_id, package_idx = int(parts[1]), int(parts[2])
     
     with db() as conn:
         product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    
-    if not product:
-        await query.message.reply_text("❌ <b>প্রোডাক্ট পাওয়া যায়নি!</b>", parse_mode=ParseMode.HTML)
-        return ConversationHandler.END
     
     options = json.loads(product["options"])
     selected_package = options[package_idx]
     user_row = get_user(str(update.effective_user.id))
     
-    if not user_row:
-        await query.message.reply_text("⚠️ সেশন চালু করতে অনুগ্রহ করে /start দিন।", parse_mode=ParseMode.HTML)
-        return ConversationHandler.END
-    
     price = selected_package["price"]
     if user_row["balance"] < price:
         await query.message.reply_text(
-            f"⚠️ <b>দুঃখিত, পর্যাপ্ত ব্যালেন্স নেই!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"💰 <b>আপনার ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
-            f"💸 <b>প্যাকেজ মূল্য:</b> ৳ {price:,.2f}\n"
-            f"🔄 <b>ঘাটতি ব্যালেন্স:</b> ৳ {price - user_row['balance']:,.2f}\n\n"
-            f"👉 অনুগ্রহ করে মেইন মেন্যু থেকে <b>'➕ ইনস্ট্যান্ট রিচার্জ'</b> করে আবার ট্রাই করুন।",
-            parse_mode=ParseMode.HTML,
+            f"❌ <b>অর্ডার ব্যর্থ! পর্যাপ্ত ব্যালেন্স নেই।</b>\n\n"
+            f"আপনার ব্যালেন্স: ৳{user_row['balance']:.2f}\n"
+            f"প্রয়োজনীয় ব্যালেন্স: ৳{price:.2f}\n\n"
+            f"অনুগ্রহ করে আগে রিচার্জ করে নিন।"
         )
         return ConversationHandler.END
     
@@ -808,30 +568,19 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
     context.user_data["order_package"] = selected_package
     
     await query.message.reply_text(
-        f"🛒 <b>অর্ডার চেকআউট / কনফার্মেশন</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 <b>প্রোডাক্ট:</b> {product['name']}\n"
-        f"📎 <b>প্যাকেজ:</b> {selected_package['amount']}\n"
-        f"💰 <b>মোট মূল্য:</b> ৳ {price:,.2f}\n\n"
-        f"👉 টপ-আপের জন্য আপনার <b>ID / UID / Username / Gmail</b> প্রদান করুন:\n"
-        f"<i>(ভুল আইডি দিলে ডেলিভারি ব্যাহত হবে। বাতিল করতে /cancel লিখুন)</i>",
-        parse_mode=ParseMode.HTML,
+        f"🛒 <b>চেকআউট নিশ্চিত করুন</b>\n\n"
+        f"📦 প্রোডাক্ট: {product['name']}\n"
+        f"📎 প্যাকেজ: {selected_package['amount']}\n"
+        f"💰 মূল্য: ৳{price}\n\n"
+        f"👉 টপ-আপ ডেলিভারির জন্য আপনার <b>ID / UID / Details</b> দিন (Min 3 letters):"
     )
     return ORDER_DETAILS_STATE
 
 
 async def receive_order_details_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if "order_product_name" not in context.user_data:
-        await update.message.reply_text("❌ সেশনের সময় শেষ! দয়া করে /start দিয়ে নতুনভাবে শুরু করুন।")
-        return ConversationHandler.END
-    
     user_details = update.message.text.strip()
-    if not user_details or len(user_details) < 3:
-        await update.message.reply_text(
-            "❌ <b>ইনপুট অসম্পূর্ণ বা অত্যন্ত ছোট!</b>\n\n"
-            "অনুগ্রহ করে সঠিক ও স্পষ্ট আইডি তথ্য লিখুন:", 
-            parse_mode=ParseMode.HTML
-        )
+    if len(user_details) < 3:
+        await update.message.reply_text("❌ ভুল আইডি! পুনরায় সঠিক ও সম্পূর্ণ আইডি দিন:")
         return ORDER_DETAILS_STATE
     
     product_name = context.user_data["order_product_name"]
@@ -839,103 +588,51 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
     price = package["price"]
     telegram_id = str(update.effective_user.id)
     
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    order_id = f"SKY-{timestamp}-{secrets.token_hex(2).upper()}"
-    reward = int(price) // 10
+    order_id = f"SKY-{int(datetime.now().timestamp())}-{secrets.token_hex(2).upper()}"
     
-    try:
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO orders (order_id, telegram_id, product_name, package, price, user_details) VALUES (?, ?, ?, ?, ?, ?)",
-                (order_id, telegram_id, product_name, package["amount"], price, user_details),
-            )
-            conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, telegram_id))
-            conn.execute("UPDATE users SET reward_points = reward_points + ? WHERE telegram_id = ?", (reward, telegram_id))
-    except sqlite3.Error as e:
-        logger.error("Order failed: %s", e)
-        await update.message.reply_text("❌ ডাটাবেজ ত্রুটির কারণে অর্ডার ব্যর্থ হয়েছে। আবার ট্রাই করুন।")
-        return ConversationHandler.END
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO orders (order_id, telegram_id, product_name, package, price, user_details) VALUES (?, ?, ?, ?, ?, ?)",
+            (order_id, telegram_id, product_name, package["amount"], price, user_details)
+        )
+        conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, telegram_id))
     
     context.user_data.clear()
-    
     await update.message.reply_text(
-        f"🎉 <b>আপনার অর্ডারটি সফল হয়েছে!</b> 🎉\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🆔 <b>অর্ডার আইডি:</b> <code>{order_id}</code>\n"
-        f"📦 <b>প্রোডাক্ট:</b> {product_name}\n"
-        f"📎 <b>প্যাকেজ:</b> {package['amount']}\n"
-        f"💰 <b>পরিশোধিত:</b> ৳ {price:,.2f} <i>(ব্যালেন্স থেকে কর্তিত)</i>\n"
-        f"🎁 <b>অর্জিত পয়েন্ট:</b> +{reward} pts\n"
-        f"👤 <b>আইডি তথ্য:</b> <code>{user_details}</code>\n\n"
-        f"⚡ আমাদের টিম সর্বোচ্চ ৫-১৫ মিনিটের মধ্যে আপনার অর্ডারটি ডেলিভারি করে দিবে। ধন্যবাদ!",
-        parse_mode=ParseMode.HTML,
+        f"🎉 <b>আপনার অর্ডারটি পেন্ডিং হিসেবে গ্রহণ করা হয়েছে!</b>\n\n"
+        f"🆔 অর্ডার আইডি: <code>{order_id}</code>\n"
+        f"💰 কর্তনকৃত ব্যালেন্স: ৳{price}\n"
+        f"⚡ ৫-১৫ মিনিটের মধ্যে এডমিন অর্ডারটি কমপ্লিট করে দিবে।"
     )
-    return ConversationHandler.END
-
-
-async def cancel_order_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for key in ["order_product_name", "order_package"]:
-        context.user_data.pop(key, None)
-    await update.message.reply_text("❌ আপনার অর্ডার প্রক্রিয়াটি বাতিল করা হয়েছে।")
+    
+    # Send Notification to Admin
+    try:
+        admin_keyboard = [
+            [
+                InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")
+            ]
+        ]
+        await context.bot.send_message(
+            chat_id=Config.ADMIN_USER_ID,
+            text=f"🔔 <b>নতুন অর্ডার নোটিফিকেশন!</b>\n\n"
+                 f"👤 ইউজার আইডি: {telegram_id}\n"
+                 f"🆔 অর্ডার আইডি: <code>{order_id}</code>\n"
+                 f"📦 প্রোডাক্ট: {product_name}\n"
+                 f"📎 প্যাকেজ: {package['amount']}\n"
+                 f"ℹ️ ইউজার ডিটেইলস: <code>{user_details}</code>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(admin_keyboard)
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify admin: {e}")
+        
     return ConversationHandler.END
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 💰 ACCOUNT SCREENS
+# ➕ AUTOMATED ADD MONEY SYSTEM
 # ──────────────────────────────────────────────────────────────────────────
-
-async def show_balance_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_row = get_user(str(update.effective_user.id))
-    if not user_row:
-        await edit_or_reply(update, "⚠️ সেশন আউট। /start দিন।")
-        return
-    
-    msg = (
-        f"💰 <b>আমার ওয়ালেট ও ব্যালেন্স</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👤 <b>নাম:</b> {UIBuilder.safe_text(user_row['name'])}\n"
-        f"💳 <b>কারেন্ট ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
-        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']:,} pts\n"
-        f"🏅 <b>ইউজার র‍্যাংক:</b> {user_row['rank']}\n\n"
-        f"⚡ ব্যালেন্স রিচার্জ করতে নিচের <b>'➕ রিচার্জ করুন'</b> বাটনে ক্লিক করুন 👇"
-    )
-    keyboard = [
-        [InlineKeyboardButton("➕ রিচার্জ করুন", callback_data="recharge")],
-        [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")],
-    ]
-    await edit_or_reply(update, msg, InlineKeyboardMarkup(keyboard))
-
-
-async def show_orders_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    with db() as conn:
-        orders = conn.execute(
-            "SELECT * FROM orders WHERE telegram_id = ? ORDER BY created_at DESC LIMIT 10",
-            (str(update.effective_user.id),),
-        ).fetchall()
-    
-    if not orders:
-        await edit_or_reply(
-            update,
-            "📭 <b>আপনি এখনও কোনো অর্ডার করেননি!</b>\n\nশপ ক্যাটাগরি থেকে আপনার প্রথম অর্ডারটি করুন 👇",
-            InlineKeyboardMarkup([
-                [InlineKeyboardButton("🛒 প্রোডাক্ট শপ", callback_data="shop")],
-                [InlineKeyboardButton("⬅️ প্রধান মেন্যু", callback_data="back_main")],
-            ]),
-        )
-        return
-    
-    lines = ["📦 <b>আপনার শেষ ১০টি অর্ডারের ইতিহাস</b>\n"
-             "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"]
-    for o in orders:
-        lines.append(
-            f"🆔 <code>{o['order_id']}</code>\n"
-            f" └ 📦 {o['product_name']} ({o['package']})\n"
-            f" └ 💰 ৳{o['price']:,.2f} | {o['status']}\n"
-            f" └ 📅 {o['created_at']}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
-    await edit_or_reply(update, "\n".join(lines), UIBuilder.back_button("back_main"))
-
 
 async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -946,16 +643,15 @@ async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("📱 রকেট (Rocket)", callback_data="recharge_rocket")
         ],
-        [
-            InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")
-        ],
+        [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")]
     ]
     await edit_or_reply(
         update,
-        "💳 <b>ইনস্ট্যান্ট ওয়ালেট রিচার্জ</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "আমাদের স্বয়ংক্রিয় গেটওয়ে পেমেন্ট সচল রয়েছে। নিচে থেকে আপনার পেমেন্ট মাধ্যমটি সিলেক্ট করুন 👇",
-        InlineKeyboardMarkup(keyboard),
+        f"💳 <b>ইনস্ট্যান্ট ওয়ালেট রিচার্জ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚠️ <b>সতর্কতা:</b> সর্বনিম্ন রিচার্জের পরিমাণ <b>৳{Config.MIN_DEPOSIT:.2f}</b> টাকা।\n\n"
+        f"নিচে থেকে আপনার পেমেন্ট মেথডটি নির্বাচন করুন 👇",
+        InlineKeyboardMarkup(keyboard)
     )
 
 
@@ -963,94 +659,462 @@ async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DE
     numbers = {
         "bkash": Config.BKASH_NUMBER,
         "nagad": Config.NAGAD_NUMBER,
-        "rocket": Config.ROCKET_NUMBER,
+        "rocket": Config.ROCKET_NUMBER
     }
-    number = numbers.get(method, "01XXXXXXXXX")
+    number = numbers.get(method, "N/A")
+    context.user_data["recharge_method"] = method
     
     await edit_or_reply(
         update,
-        f"💳 <b>{method.upper()} পেমেন্ট মেথড</b>\n"
+        f"💳 <b>{method.upper()} পেমেন্ট গেটওয়ে</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 <b>সেন্ড মানি করার নির্দেশনা:</b>\n"
-        f" └ আমাদের {method.title()} পার্সোনাল নম্বর:\n"
-        f"   👉 <code>{number}</code> <i>(নম্বরটি কপি করতে ক্লিক করুন)</i>\n\n"
-        f"📥 <b>টাকা পাঠানোর পর করণীয়:</b>\n"
-        f"১. সফল লেনদেনের TrxID এবং পেমেন্ট স্ক্রিনশটটি সংরক্ষণ করুন।\n"
-        f"২. আমাদের অফিশিয়াল সাপোর্ট অ্যাকাউন্টে সেন্ড করুন।\n"
-        f"৩. ৫ মিনিটের মধ্যে আপনার অ্যাকাউন্টে টাকা ক্রেডিট হয়ে যাবে।\n\n"
-        f"👨‍💻 <b>সরাসরি পেমেন্ট সাপোর্ট:</b> @SkyTopUpSupport",
-        UIBuilder.back_button("recharge"),
+        f"👉 আমাদের {method.title()} পার্সোনাল নম্বর: <code>{number}</code> (ক্লিক করলেই কপি হবে)\n\n"
+        f"📌 <b>নিয়মাবলী:</b>\n"
+        f"১. প্রথমে ওপরে দেওয়া নম্বরে <b>Send Money</b> করুন।\n"
+        f"২. ন্যূনতম রিচার্জ পরিমাণ: ৳{Config.MIN_DEPOSIT}\n"
+        f"৩. সফল পেমেন্ট শেষে ট্রানজেকশন আইডি (TrxID) কপি করুন।\n\n"
+        f"💵 <b>আপনি কত টাকা পাঠিয়েছেন? শুধু টাকার অংকটি নিচে টাইপ করে পাঠান:</b>"
     )
+    return ADD_MONEY_AMOUNT
+
+
+async def add_money_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amount = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ ভুল ইনপুট! শুধু সংখ্যা দিন (যেমন: ১০০):")
+        return ADD_MONEY_AMOUNT
+    
+    if amount < Config.MIN_DEPOSIT:
+        await update.message.reply_text(f"❌ দুঃখিত, সর্বনিম্ন ডিপোজিট লিমিট ৳{Config.MIN_DEPOSIT}। আবার ট্রাই করুন:")
+        return ADD_MONEY_AMOUNT
+    
+    context.user_data["recharge_amount"] = amount
+    await update.message.reply_text(
+        "🔑 এবার আপনার পেমেন্টের <b>Transaction ID (TrxID)</b> টি টাইপ করে এখানে পাঠান:"
+    )
+    return ADD_MONEY_TRX
+
+
+async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    trx_id = update.message.text.strip()
+    if len(trx_id) < 5:
+        await update.message.reply_text("❌ ভুল TrxID! দয়া করে সঠিক TrxID দিন:")
+        return ADD_MONEY_TRX
+    
+    method = context.user_data.get("recharge_method")
+    amount = context.user_data.get("recharge_amount")
+    telegram_id = str(update.effective_user.id)
+    req_id = f"DEP-{int(datetime.now().timestamp())}"
+    
+    # Save Request in DB
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO deposit_requests (request_id, telegram_id, method, amount, trx_id) VALUES (?, ?, ?, ?, ?)",
+            (req_id, telegram_id, method, amount, trx_id)
+        )
+    
+    context.user_data.clear()
+    
+    await update.message.reply_text(
+        f"✅ <b>আপনার পেমেন্ট রিকোয়েস্ট জমা হয়েছে!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 ট্র্যাকিং আইডি: <code>{req_id}</code>\n"
+        f"💳 মাধ্যম: {method.upper()}\n"
+        f"💰 পরিমাণ: ৳{amount:.2f}\n"
+        f"🔑 TrxID: <code>{trx_id}</code>\n\n"
+        f"⚡ আমাদের টিম ২-৫ মিনিটের মধ্যে এটি ভেরিফাই করে ব্যালেন্স যুক্ত করে দেবে।"
+    )
+    
+    # Notify Admin
+    try:
+        admin_keyboard = [
+            [
+                InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{req_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{req_id}")
+            ]
+        ]
+        await context.bot.send_message(
+            chat_id=Config.ADMIN_USER_ID,
+            text=f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট!</b>\n\n"
+                 f"👤 ইউজার আইডি: {telegram_id}\n"
+                 f"💳 মেথড: {method.upper()}\n"
+                 f"💰 এমাউন্ট: ৳{amount:.2f}\n"
+                 f"🔑 TrxID: <code>{trx_id}</code>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(admin_keyboard)
+        )
+    except Exception as e:
+        logger.error(f"Deposit notification failure: {e}")
+        
+    return ConversationHandler.END
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 🛠️ ENTERPRISE ADMIN PANEL & CONTROLS
+# ──────────────────────────────────────────────────────────────────────────
+
+async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_row = get_user(str(update.effective_user.id))
+    if not is_admin(user_row):
+        await edit_or_reply(update, "❌ অ্যাক্সেস ডিনাইড!")
+        return
+    
+    with db() as conn:
+        users_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        pending_orders = conn.execute("SELECT COUNT(*) FROM orders WHERE status = '⏳ Pending'").fetchone()[0]
+        pending_deposits = conn.execute("SELECT COUNT(*) FROM deposit_requests WHERE status = '⏳ Pending'").fetchone()[0]
+        m_mode = conn.execute("SELECT value FROM settings WHERE key = 'maintenance_mode'").fetchone()["value"]
+    
+    m_btn_text = "🟢 Turn Maintenance ON" if m_mode == "OFF" else "🔴 Turn Maintenance OFF"
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 অর্ডারসমূহ", callback_data="adm_view_orders"),
+            InlineKeyboardButton("💰 অ্যাড-মানি লিস্ট", callback_data="adm_view_deposits")
+        ],
+        [
+            InlineKeyboardButton("👤 ব্যালেন্স এডিট করুন", callback_data="adm_balance_set"),
+            InlineKeyboardButton("📦 নতুন প্রোডাক্ট যোগ করুন", callback_data="adm_product_add")
+        ],
+        [
+            InlineKeyboardButton(m_btn_text, callback_data="adm_toggle_maintenance")
+        ],
+        [InlineKeyboardButton("⬅️ প্রধান মেন্যু", callback_data="back_main")]
+    ]
+    
+    await edit_or_reply(
+        update,
+        f"🛠️ <b>অ্যাডমিন অপারেশন ড্যাশবোর্ড</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👥 মোট ইউজার: {users_count} জন\n"
+        f"⏳ পেন্ডিং অর্ডার: {pending_orders} টি\n"
+        f"💵 পেন্ডিং ডিপোজিট: {pending_deposits} টি\n"
+        f"⚙️ মেইনটেনেন্স মোড: <b>{m_mode}</b>",
+        InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    user_row = get_user(str(update.effective_user.id))
+    
+    if not is_admin(user_row):
+        await query.answer("❌ আপনি অ্যাডমিন নন।", show_alert=True)
+        return
+        
+    await query.answer()
+    
+    if data == "adm_toggle_maintenance":
+        current = "OFF" if is_maintenance() else "ON"
+        with db() as conn:
+            conn.execute("UPDATE settings SET value = ? WHERE key = 'maintenance_mode'", (current,))
+        await show_admin_panel_ui(update, context)
+        
+    elif data == "adm_view_orders":
+        with db() as conn:
+            orders = conn.execute("SELECT * FROM orders WHERE status = '⏳ Pending' LIMIT 5").fetchall()
+        if not orders:
+            await query.message.reply_text("🟢 কোনো পেন্ডিং অর্ডার নেই!")
+            return
+        
+        for o in orders:
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{o['order_id']}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{o['order_id']}")
+                ]
+            ]
+            await query.message.reply_text(
+                f"🆔 অর্ডার আইডি: <code>{o['order_id']}</code>\n"
+                f"👤 ইউজার: {o['telegram_id']}\n"
+                f"📦 প্রোডাক্ট: {o['product_name']} ({o['package']})\n"
+                f"ℹ️ ডিটেইলস: <code>{o['user_details']}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+    elif data == "adm_view_deposits":
+        with db() as conn:
+            deposits = conn.execute("SELECT * FROM deposit_requests WHERE status = '⏳ Pending' LIMIT 5").fetchall()
+        if not deposits:
+            await query.message.reply_text("🟢 কোনো পেন্ডিং ডিপোজিট নেই!")
+            return
+        
+        for d in deposits:
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['request_id']}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['request_id']}")
+                ]
+            ]
+            await query.message.reply_text(
+                f"🆔 রিকোয়েস্ট আইডি: <code>{d['request_id']}</code>\n"
+                f"👤 ইউজার: {d['telegram_id']}\n"
+                f"💳 মাধ্যম: {d['method'].upper()}\n"
+                f"💰 পরিমাণ: ৳{d['amount']}\n"
+                f"🔑 TrxID: <code>{d['trx_id']}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+    # Approve/Reject Order
+    elif data.startswith("adm_ord_approve_"):
+        ord_id = data.replace("adm_ord_approve_", "")
+        with db() as conn:
+            conn.execute("UPDATE orders SET status = '✅ Completed' WHERE order_id = ?", (ord_id,))
+            order = conn.execute("SELECT telegram_id, product_name, package FROM orders WHERE order_id = ?", (ord_id,)).fetchone()
+        
+        await query.message.edit_text(f"✅ অর্ডার {ord_id} সফলভাবে সম্পন্ন হয়েছে!")
+        try:
+            await context.bot.send_message(
+                chat_id=order["telegram_id"],
+                text=f"🎉 <b>আপনার অর্ডারটি সফল হয়েছে!</b>\n\n"
+                     f"🆔 অর্ডার আইডি: <code>{ord_id}</code>\n"
+                     f"📦 প্রোডাক্ট: {order['product_name']} ({order['package']})\n\n"
+                     f"টপ-আপ আপনার অ্যাকাউন্টে যোগ করা হয়েছে। ধন্যবাদ!"
+            )
+        except Exception:
+            pass
+
+    elif data.startswith("adm_ord_reject_"):
+        ord_id = data.replace("adm_ord_reject_", "")
+        with db() as conn:
+            conn.execute("UPDATE orders SET status = '❌ Rejected' WHERE order_id = ?", (ord_id,))
+            order = conn.execute("SELECT telegram_id, price FROM orders WHERE order_id = ?", (ord_id,)).fetchone()
+            # Refund balance
+            conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (order["price"], order["telegram_id"]))
+            
+        await query.message.edit_text(f"❌ অর্ডার {ord_id} বাতিল করা হয়েছে (টাকা রিফান্ড করা হয়েছে)!")
+        try:
+            await context.bot.send_message(
+                chat_id=order["telegram_id"],
+                text=f"❌ <b>আপনার অর্ডারটি বাতিল করা হয়েছে!</b>\n\n"
+                     f"🆔 অর্ডার আইডি: <code>{ord_id}</code>\n"
+                     f"💰 আপনার ৳{order['price']} ব্যাক দেওয়া হয়েছে।"
+            )
+        except Exception:
+            pass
+
+    # Approve/Reject Deposit (Add Money)
+    elif data.startswith("adm_dep_approve_"):
+        req_id = data.replace("adm_dep_approve_", "")
+        with db() as conn:
+            dep = conn.execute("SELECT * FROM deposit_requests WHERE request_id = ? AND status = '⏳ Pending'", (req_id,)).fetchone()
+            if dep:
+                conn.execute("UPDATE deposit_requests SET status = '✅ Approved' WHERE request_id = ?", (req_id,))
+                conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (dep["amount"], dep["telegram_id"]))
+                
+                await query.message.edit_text(f"✅ ডিপোজিট {req_id} সফলভাবে এপ্রুভ হয়েছে!")
+                try:
+                    await context.bot.send_message(
+                        chat_id=dep["telegram_id"],
+                        text=f"🎉 <b>আপনার ওয়ালেট রিচার্জ সফল হয়েছে!</b>\n\n"
+                             f"💰 যোগকৃত ব্যালেন্স: ৳{dep['amount']:.2f}\n"
+                             f"💳 মেথড: {dep['method'].upper()}\n\n"
+                             f"ধন্যবাদ আমাদের সাথে থাকার জন্য!"
+                    )
+                except Exception:
+                    pass
+
+    elif data.startswith("adm_dep_reject_"):
+        req_id = data.replace("adm_dep_reject_", "")
+        with db() as conn:
+            dep = conn.execute("SELECT * FROM deposit_requests WHERE request_id = ?", (req_id,)).fetchone()
+            conn.execute("UPDATE deposit_requests SET status = '❌ Rejected' WHERE request_id = ?", (req_id,))
+            
+        await query.message.edit_text(f"❌ ডিপোজিট রিকোয়েস্ট {req_id} রিজেক্ট করা হয়েছে!")
+        try:
+            await context.bot.send_message(
+                chat_id=dep["telegram_id"],
+                text=f"❌ <b>আপনার ওয়ালেট রিচার্জ বাতিল করা হয়েছে!</b>\n\n"
+                     f"কারন: আপনার প্রদত্ত TrxID অথবা টাকার অংকটি সঠিক নয়। প্রয়োজনে সাপোর্টে কথা বলুন।"
+            )
+        except Exception:
+            pass
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 🛠️ BALANCE SET CONVERSATION
+# ──────────────────────────────────────────────────────────────────────────
+
+async def start_balance_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.message.reply_text("👤 যে ইউজারের ব্যালেন্স পরিবর্তন করতে চান তার <b>Telegram ID</b> দিন:")
+    return ADMIN_SET_BAL_ID
+
+async def bal_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tgt_id = update.message.text.strip()
+    user_row = get_user(tgt_id)
+    if not user_row:
+        await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি। পুনরায় আইডি দিন:")
+        return ADMIN_SET_BAL_ID
+    
+    context.user_data["tgt_bal_id"] = tgt_id
+    await update.message.reply_text(
+        f"👤 ইউজার: {user_row['name']}\n"
+        f"💵 বর্তমান ব্যালেন্স: ৳{user_row['balance']:.2f}\n\n"
+        f"👉 <b>নতুন ব্যালেন্স কত টাকা বসাতে চান? সেটি টাইপ করে পাঠান:</b>"
+    )
+    return ADMIN_SET_BAL_AMT
+
+async def bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        new_bal = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ অংকটি সঠিক নয়। সঠিক সংখ্যা লিখুন:")
+        return ADMIN_SET_BAL_AMT
+    
+    tgt_id = context.user_data.get("tgt_bal_id")
+    with db() as conn:
+        conn.execute("UPDATE users SET balance = ? WHERE telegram_id = ?", (new_bal, tgt_id))
+    
+    context.user_data.clear()
+    await update.message.reply_text(f"✅ সফলভাবে ইউজারের নতুন ব্যালেন্স ৳{new_bal:.2f} সেট করা হয়েছে!")
+    return ConversationHandler.END
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ➕ DYNAMIC PRODUCT ADD CONVERSATION
+# ──────────────────────────────────────────────────────────────────────────
+
+async def start_product_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Game", callback_data="cat_sel_game"), InlineKeyboardButton("Subscribe", callback_data="cat_sel_subscribe")]
+    ]
+    await update.callback_query.message.reply_text("📂 প্রোডাক্টের ক্যাটাগরি বেছে নিন:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return ADMIN_ADD_PROD_CAT
+
+async def prod_cat_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    category = "game" if "game" in query.data else "subscribe"
+    context.user_data["new_prod_cat"] = category
+    await query.message.reply_text("📦 প্রোডাক্টের <b>নাম</b> লিখুন (যেমন: Free Fire 500 Diamonds):")
+    return ADMIN_ADD_PROD_NAME
+
+async def prod_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = update.message.text.strip()
+    context.user_data["new_prod_name"] = name
+    await update.message.reply_text("📝 প্রোডাক্টের <b>ছোট বিবরণ বা ডেসক্রিপশন</b> লিখুন:")
+    return ADMIN_ADD_PROD_DESC
+
+async def prod_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    desc = update.message.text.strip()
+    context.user_data["new_prod_desc"] = desc
+    await update.message.reply_text(
+        "💎 এবার অপশন বা প্যাকেজগুলো JSON ফরম্যাটে দিন।\n"
+        "যেমন:\n"
+        '<code>[{"amount": "১০০ ডায়মন্ড", "price": 100}, {"amount": "২০০ ডায়মন্ড", "price": 200}]</code>'
+    )
+    return ADMIN_ADD_PROD_OPTS
+
+async def prod_opts_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    opts_raw = update.message.text.strip()
+    try:
+        json.loads(opts_raw)  # Validation Check
+    except ValueError:
+        await update.message.reply_text("❌ ইনপুটটি সঠিক JSON ফরম্যাটে হয়নি! আবার পাঠান:")
+        return ADMIN_ADD_PROD_OPTS
+    
+    category = context.user_data.get("new_prod_cat")
+    name = context.user_data.get("new_prod_name")
+    desc = context.user_data.get("new_prod_desc")
+    
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO products (name, category, description, options) VALUES (?, ?, ?, ?)",
+            (name, category, desc, opts_raw)
+        )
+    
+    context.user_data.clear()
+    await update.message.reply_text("✅ প্রোডাক্টটি সফলভাবে যুক্ত করা হয়েছে!")
+    return ConversationHandler.END
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 👤 PROFILE & GENERAL VIEWS
+# ──────────────────────────────────────────────────────────────────────────
+
+async def show_balance_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_row = get_user(str(update.effective_user.id))
+    msg = (
+        f"💰 <b>আমার ওয়ালেট ব্যালেন্স</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 ব্যবহারকারী: {UIBuilder.safe_text(user_row['name'])}\n"
+        f"💳 কারেন্ট ব্যালেন্স: ৳{user_row['balance']:,.2f}\n"
+        f"🎁 রিওয়ার্ড পয়েন্ট: {user_row['reward_points']:,} pts\n\n"
+        f"রিচার্জ করতে নিচের বাটনে ক্লিক করুন 👇"
+    )
+    keyboard = [
+        [InlineKeyboardButton("➕ ইনস্ট্যান্ট রিচার্জ", callback_data="recharge")],
+        [InlineKeyboardButton("⬅️ প্রধান মেন্যু", callback_data="back_main")]
+    ]
+    await edit_or_reply(update, msg, InlineKeyboardMarkup(keyboard))
 
 
 async def show_profile_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_row = get_user(str(update.effective_user.id))
-    if not user_row:
-        await edit_or_reply(update, "⚠️ অ্যাকাউন্ট খুঁজে পাওয়া যায়নি। /start দিন।")
-        return
-    
     await edit_or_reply(
         update,
-        f"👤 <b>ব্যবহারকারীর প্রোফাইল</b>\n"
+        f"👤 <b>আমার প্রোফাইল</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👤 <b>গ্রাহকের নাম:</b> {UIBuilder.safe_text(user_row['name'])}\n"
-        f"📧 <b>নিবন্ধিত ইমেইল:</b> <code>{user_row['email']}</code>\n"
-        f"🏅 <b>মেম্বারশিপ র‍্যাংক:</b> {user_row['rank']}\n"
-        f"💳 <b>ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
-        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']:,} pts\n"
-        f"📅 <b>অ্যাকাউন্ট তৈরি:</b> {user_row['created_at']}",
-        UIBuilder.back_button("back_main"),
+        f"👤 নাম: {UIBuilder.safe_text(user_row['name'])}\n"
+        f"📧 ইমেল: <code>{user_row['email']}</code>\n"
+        f"🏅 র‍্যাংক: {user_row['rank']}\n"
+        f"💳 ব্যালেন্স: ৳{user_row['balance']:.2f}\n"
+        f"📅 তৈরির তারিখ: {user_row['created_at']}",
+        UIBuilder.back_button("back_main")
     )
-
 
 async def show_settings_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await edit_or_reply(
-        update,
-        "⚙️ <b>সিস্টেম ও সেটিংস</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "⏳ <b>নিচের ফিচারগুলো পরবর্তী আপডেটে আসছে:</b>\n"
-        " ├ 🔐 পাসওয়ার্ড পরিবর্তন (Change Password)\n"
-        " ├ 🔔 নোটিফিকেশন অ্যালার্ট (Notification settings)\n"
-        " └ 🌐 ইন্টারফেস ভাষা পরিবর্তন (Language options)",
-        UIBuilder.back_button("back_main"),
-    )
-
+    await edit_or_reply(update, "⚙️ <b>সেটিংস ও নিরাপত্তা</b>\n\nফিচারগুলো পরবর্তী আপডেটে আসবে।", UIBuilder.back_button("back_main"))
 
 async def show_help_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await edit_or_reply(
-        update,
-        "❓ <b>হেল্প সেন্টার ও সাপোর্ট</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🤖 <b>বটের প্রধান কমান্ডসমূহ:</b>\n"
-        " ├ /start - প্রধান ড্যাশবোর্ড ও মেন্যু ওপেন করুন\n"
-        " └ /cancel - যেকোনো চলমান প্রক্রিয়া বাতিল করুন\n\n"
-        "📌 <b>২৪/৭ কাস্টমার কেয়ার:</b>\n"
-        "টপ-আপ রিফান্ড, পেমেন্ট অ্যাড অথবা যেকোনো টেকনিক্যাল ইস্যুতে সরাসরি আমাদের সাপোর্ট টিমের সাথে কথা বলুন।\n\n"
-        "👉 <b>কাস্টমার সাপোর্ট আইডি:</b> @SkyTopUpSupport",
-        UIBuilder.back_button("back_main"),
-    )
+    await edit_or_reply(update, "💬 <b>২৪/৭ কাস্টমার সাপোর্ট</b>\n\nযেকোনো সমস্যায় আমাদের অফিশিয়াল সাপোর্টে নক করুন: @SkyTopUpSupport", UIBuilder.back_button("back_main"))
 
-
-async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_row = get_user(str(update.effective_user.id))
-    if not user_row or not is_admin(user_row):
-        await edit_or_reply(update, "⛔ <b>অ্যাক্সেস ডিনাইড! এই প্যানেলটি শুধুমাত্র অ্যাডমিনদের জন্য সংরক্ষিত।</b>", UIBuilder.back_button("back_main"))
+async def show_orders_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    with db() as conn:
+        orders = conn.execute("SELECT * FROM orders WHERE telegram_id = ? ORDER BY created_at DESC LIMIT 5", (str(update.effective_user.id),)).fetchall()
+    
+    if not orders:
+        await edit_or_reply(update, "📭 আপনি এখনও কোনো অর্ডার করেননি।", UIBuilder.back_button("back_main"))
         return
     
-    with db() as conn:
-        total_users = conn.execute("SELECT COUNT(*) as cnt FROM users").fetchone()["cnt"]
-        pending_orders = conn.execute("SELECT COUNT(*) as cnt FROM orders WHERE status = '⏳ Pending'").fetchone()["cnt"]
-        total_revenue = conn.execute("SELECT COALESCE(SUM(price), 0) as total FROM orders").fetchone()["total"]
+    lines = ["📦 <b>আপনার শেষ ৫টি অর্ডারের ইতিহাস:</b>\n"]
+    for o in orders:
+        lines.append(f"🆔 <code>{o['order_id']}</code> | 📦 {o['product_name']} | ৳{o['price']} | {o['status']}")
+    await edit_or_reply(update, "\n\n".join(lines), UIBuilder.back_button("back_main"))
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 🔄 MAIN CALLBACK ROUTER
+# ──────────────────────────────────────────────────────────────────────────
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
     
-    await edit_or_reply(
-        update,
-        f"🛠️ <b>অ্যাডমিন কন্ট্রোল ড্যাশবোর্ড</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👥 <b>মোট রেজিস্টার্ড ইউজার:</b> {total_users:,} জন\n"
-        f"⏳ <b>পেন্ডিং অর্ডারসমূহ:</b> {pending_orders:,} টি\n"
-        f"💰 <b>মোট অর্জিত রেভিনিউ:</b> ৳ {total_revenue:,.2f}",
-        UIBuilder.back_button("back_main"),
-    )
+    routes = {
+        "back_main": cmd_start,
+        "shop": show_categories_ui,
+        "balance": show_balance_ui,
+        "orders": show_orders_ui,
+        "recharge": show_recharge_ui,
+        "profile": show_profile_ui,
+        "settings": show_settings_ui,
+        "help": show_help_ui,
+        "admin_panel": show_admin_panel_ui,
+    }
+    
+    if data in routes:
+        await routes[data](update, context)
+    elif data.startswith("category_"):
+        await show_products_ui(update, context, data.replace("category_", ""))
+    elif data.startswith("product_"):
+        await select_package_ui(update, context, int(data.replace("product_", "")))
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1058,23 +1122,11 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ──────────────────────────────────────────────────────────────────────────
 
 def main():
-    if not Config.BOT_TOKEN:
-        raise SystemExit(
-            "❌ BOT_TOKEN environment variable is not set!\n\n"
-            "Railway Dashboard → Variables → Add:\n"
-            "  BOT_TOKEN = your_bot_token\n\n"
-            "Then redeploy."
-        )
-    
-    if Config.DEV_MODE:
-        logger.warning("⚠️ DEV MODE ACTIVE — SMTP not configured. OTP shown in chat.")
-    else:
-        logger.info("✅ Email sending ENABLED")
-    
     init_db()
     
     app = Application.builder().token(Config.BOT_TOKEN).build()
     
+    # Registration Handler
     reg_handler = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
@@ -1086,19 +1138,58 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
     
+    # Order Details Handler
     order_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(package_selected_handler, pattern=r"^package_\d+_\d+$")],
         states={
             ORDER_DETAILS_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_order_details_handler)],
         },
-        fallbacks=[CommandHandler("cancel", cancel_order_handler)],
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+    )
+
+    # Deposit/Add Money Handler
+    deposit_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(show_recharge_instructions_ui, pattern=r"^recharge_(bkash|nagad|rocket)$")],
+        states={
+            ADD_MONEY_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_money_amount_handler)],
+            ADD_MONEY_TRX: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_money_trx_handler)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+    )
+
+    # Admin Set Balance Handler
+    admin_balance_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_balance_set, pattern="^adm_balance_set$")],
+        states={
+            ADMIN_SET_BAL_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, bal_id_received)],
+            ADMIN_SET_BAL_AMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, bal_amt_received)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)]
+    )
+
+    # Admin Add Product Handler
+    admin_product_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_product_add, pattern="^adm_product_add$")],
+        states={
+            ADMIN_ADD_PROD_CAT: [CallbackQueryHandler(prod_cat_received, pattern="^cat_sel_")],
+            ADMIN_ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_name_received)],
+            ADMIN_ADD_PROD_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_desc_received)],
+            ADMIN_ADD_PROD_OPTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_opts_received)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)]
     )
     
     app.add_handler(reg_handler)
     app.add_handler(order_handler)
-    app.add_handler(CallbackQueryHandler(button_callback, pattern=r"^(?!package_)"))
+    app.add_handler(deposit_handler)
+    app.add_handler(admin_balance_handler)
+    app.add_handler(admin_product_handler)
     
-    logger.info("🌟 Sky TopUp Bot is now running on high performance...")
+    # Unified Query Handlers
+    app.add_handler(CallbackQueryHandler(admin_callback_router, pattern=r"^adm_"))
+    app.add_handler(CallbackQueryHandler(button_callback, pattern=r"^(?!package_)(?!adm_)"))
+    
+    logger.info("🌟 Sky TopUp Bot (Enterprise Engine) started successfully...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
