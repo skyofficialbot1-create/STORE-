@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SKY TopUp Telegram Bot — v2.0 (Railway Ready)
-─────────────────────────────────────────
+SKY TopUp Telegram Bot — v2.5 (Fully Integrated & Premium UI)
+───────────────────────────────────────────────────────────
 """
 
 import logging
@@ -32,42 +32,34 @@ from telegram.ext import (
     filters,
 )
 
-# ── .env ফাইল থেকে ভেরিয়েবল লোড করার জন্য ──
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # python-dotenv না থাকলে .env ছাড়াই চলবে
-# ─────────────────────────────────────────
-
 # ──────────────────────────────────────────────────────────────────────────
-# 🎛️ CONFIGURATION
+# 🎛️ CONFIGURATION (Integrated from .env)
 # ──────────────────────────────────────────────────────────────────────────
 
 class Config:
-    """Centralized configuration management."""
+    """Centralized configuration management with hardcoded defaults."""
     
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+    # Telegram Bot Token
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk")
     
-    # SMTP / Email
+    # SMTP / Email Configuration
     SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "mehedihasan706261@gmail.com")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "qgpp laff mkgo iktz")
     
     # Payment merchant numbers
-    BKASH_NUMBER = os.getenv("BKASH_NUMBER", "01XXXXXXXXX")
-    NAGAD_NUMBER = os.getenv("NAGAD_NUMBER", "01XXXXXXXXX")
-    ROCKET_NUMBER = os.getenv("ROCKET_NUMBER", "01XXXXXXXXX")
+    BKASH_NUMBER = os.getenv("BKASH_NUMBER", "01742958563")
+    NAGAD_NUMBER = os.getenv("NAGAD_NUMBER", "01748506069")
+    ROCKET_NUMBER = os.getenv("ROCKET_NUMBER", "01742958563")
     
     # OTP & Security
     OTP_VALID_MINUTES = 5
     MAX_OTP_ATTEMPTS = 3
     MIN_PASSWORD_LENGTH = 6
     
-    # Database — Railway persistent path
-    DB_PATH = os.getenv("DB_PATH", "/data/skytopup.db")
-    # /data Railway-এ persistent storage
+    # Database path
+    DB_PATH = os.getenv("DB_PATH", "skytopup.db")
     
     # Feature flags
     EMAIL_SENDING_ENABLED = bool(SMTP_EMAIL and SMTP_PASSWORD)
@@ -111,7 +103,6 @@ def db():
 
 def init_db():
     """Initialize all database tables."""
-    # নিশ্চিত করুন যে /data ডিরেক্টরি আছে
     db_dir = os.path.dirname(Config.DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
@@ -129,7 +120,7 @@ def init_db():
                 name TEXT DEFAULT 'User',
                 balance REAL DEFAULT 0.0,
                 reward_points INTEGER DEFAULT 0,
-                rank TEXT DEFAULT '🥉 Bronze',
+                rank TEXT DEFAULT '🥈 Silver Member',
                 is_admin INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
                 last_login TIMESTAMP,
@@ -184,37 +175,37 @@ def init_db():
             default_products = [
                 ("Free Fire Diamonds", "game", "💎", "ফ্রি ফায়ার ডায়মন্ড টপ-আপ",
                  json.dumps([
-                     {"amount": "💎 100 Diamonds", "price": 100},
-                     {"amount": "💎 310 Diamonds", "price": 300},
-                     {"amount": "💎 520 Diamonds", "price": 500},
-                     {"amount": "💎 1060 Diamonds", "price": 1000},
+                     {"amount": "💎 ১০০ ডায়মন্ড", "price": 100},
+                     {"amount": "💎 ৩১০ ডায়মন্ড", "price": 300},
+                     {"amount": "💎 ৫২০ ডায়মন্ড", "price": 500},
+                     {"amount": "💎 ১০৬০ ডায়মন্ড", "price": 1000},
                  ])),
                 ("PUBG Mobile UC", "game", "🔫", "PUBG মোবাইল UC টপ-আপ",
                  json.dumps([
-                     {"amount": "🔫 60 UC", "price": 120},
-                     {"amount": "🔫 325 UC", "price": 600},
-                     {"amount": "🔫 660 UC", "price": 1150},
+                     {"amount": "🔫 ৬০ UC", "price": 120},
+                     {"amount": "🔫 ৩২৫ UC", "price": 600},
+                     {"amount": "🔫 ৬৬০ UC", "price": 1150},
                  ])),
                 ("Netflix Premium", "subscribe", "🎬", "নেটফ্লিক্স প্রিমিয়াম সাবস্ক্রিপশন",
                  json.dumps([
-                     {"amount": "🎬 1 Month", "price": 200},
-                     {"amount": "🎬 3 Months", "price": 500},
-                     {"amount": "🎬 12 Months", "price": 1800},
+                     {"amount": "🎬 ১ মাস স্ক্রিন", "price": 200},
+                     {"amount": "🎬 ৩ মাস প্রিমিয়াম", "price": 500},
+                     {"amount": "🎬 ১২ মাস প্রিমিয়াম", "price": 1800},
                  ])),
                 ("YouTube Premium", "subscribe", "▶️", "ইউটিউব প্রিমিয়াম সাবস্ক্রিপশন",
                  json.dumps([
-                     {"amount": "▶️ 1 Month", "price": 120},
-                     {"amount": "▶️ 12 Months", "price": 1200},
+                     {"amount": "▶️ ১ মাস প্রিমিয়াম", "price": 120},
+                     {"amount": "▶️ ১২ মাস প্রিমিয়াম", "price": 1200},
                  ])),
                 ("Spotify Premium", "subscribe", "🎵", "স্পটিফাই প্রিমিয়াম সাবস্ক্রিপশন",
                  json.dumps([
-                     {"amount": "🎵 1 Month", "price": 130},
-                     {"amount": "🎵 3 Months", "price": 350},
+                     {"amount": "🎵 ১ মাস প্রিমিয়াম", "price": 130},
+                     {"amount": "🎵 ৩ মাস প্রিমিয়াম", "price": 350},
                  ])),
                 ("Crunchyroll Premium", "subscribe", "🎌", "ক্রাঞ্চিরোল প্রিমিয়াম সাবস্ক্রিপশন",
                  json.dumps([
-                     {"amount": "🎌 1 Month", "price": 150},
-                     {"amount": "🎌 3 Months", "price": 400},
+                     {"amount": "🎌 ১ মাস মেম্বারশিপ", "price": 150},
+                     {"amount": "🎌 ৩ মাস মেম্বারশিপ", "price": 400},
                  ])),
             ]
             c.executemany(
@@ -298,13 +289,13 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     msg = MIMEMultipart("alternative")
     msg["From"] = f"SKY TopUp <{Config.SMTP_EMAIL}>"
     msg["To"] = to_email
-    msg["Subject"] = "🔐 SKY TopUp — আপনার OTP ভেরিফিকেশন কোড"
+    msg["Subject"] = "🔐 SKY TopUp — OTP Verification Code"
     
     text_body = (
         f"আপনার SKY TopUp OTP কোড: {otp}\n\n"
-        f"⏰ এই কোডটি {Config.OTP_VALID_MINUTES} মিনিটের জন্য বৈধ।\n"
-        f"🔒 নিরাপত্তার জন্য কারো সাথে শেয়ার করবেন না।\n\n"
-        f"— SKY TopUp টিম"
+        f"⏰ এই কোডটি {Config.OTP_VALID_MINUTES} মিনিটের জন্য কার্যকর থাকবে।\n"
+        f"🔒 নিরাপত্তার জন্য দয়া করে এটি কারো সাথে শেয়ার করবেন না।\n\n"
+        f"ধন্যবাদ,\nSKY TopUp টিম"
     )
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     
@@ -321,7 +312,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🎨 UI HELPERS
+# 🎨 UI HELPERS (Polished and Made Premium)
 # ──────────────────────────────────────────────────────────────────────────
 
 class UIBuilder:
@@ -332,22 +323,30 @@ class UIBuilder:
     @staticmethod
     def main_menu(user_row=None) -> InlineKeyboardMarkup:
         keyboard = [
-            [InlineKeyboardButton("🛒 প্রোডাক্ট কিনুন", callback_data="shop"),
-             InlineKeyboardButton("💰 ব্যালেন্স", callback_data="balance")],
-            [InlineKeyboardButton("📦 অর্ডার ট্র্যাক", callback_data="orders"),
-             InlineKeyboardButton("➕ রিচার্জ", callback_data="recharge")],
-            [InlineKeyboardButton("👤 প্রোফাইল", callback_data="profile"),
-             InlineKeyboardButton("⚙️ সেটিংস", callback_data="settings")],
-            [InlineKeyboardButton("❓ হেল্প & সাপোর্ট", callback_data="help")],
+            [
+                InlineKeyboardButton("🛒 প্রোডাক্ট কিনুন", callback_data="shop"),
+                InlineKeyboardButton("💳 ব্যালেন্স চেক", callback_data="balance")
+            ],
+            [
+                InlineKeyboardButton("📦 অর্ডার ট্র্যাক", callback_data="orders"),
+                InlineKeyboardButton("➕ ইনস্ট্যান্ট রিচার্জ", callback_data="recharge")
+            ],
+            [
+                InlineKeyboardButton("👤 আমার প্রোফাইল", callback_data="profile"),
+                InlineKeyboardButton("⚙️ সেটিংস", callback_data="settings")
+            ],
+            [
+                InlineKeyboardButton("💬 হেল্প ও সাপোর্ট", callback_data="help")
+            ],
         ]
         if user_row and is_admin(user_row):
-            keyboard.append([InlineKeyboardButton("🔧 এডমিন প্যানেল", callback_data="admin")])
+            keyboard.append([InlineKeyboardButton("🛠️ অ্যাডমিন প্যানেল 🛠️", callback_data="admin")])
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
     def back_button(callback_data: str = "back_main") -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("⬅️ ফিরে যান", callback_data=callback_data)]
+            [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data=callback_data)]
         ])
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -397,27 +396,29 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_last_login(str(user.id))
         user_row = get_user(str(user.id))
         welcome = (
-            f"🌤️━━━ ✦ <b>SKY TopUp</b> ✦ ━━━🌤️\n\n"
-            f"👋 <b>স্বাগতম, {UIBuilder.safe_text(user_row['name'])}!</b>\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
-            f"💳 <b>ব্যালেন্স:</b> ৳{user_row['balance']:,.2f}\n"
-            f"🏆 <b>র‍্যাংক:</b> {user_row['rank']}\n\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"নিচের মেনু থেকে আপনার পছন্দের অপশন সিলেক্ট করুন 👇"
+            f"⚡ <b>SKY TOPUP — PREMIUM BOT</b> ⚡\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👋 স্বাগতম, <b>{UIBuilder.safe_text(user_row['name'])}</b>!\n\n"
+            f"💵 <b>ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
+            f"🏅 <b>র‍্যাংক:</b> {user_row['rank']}\n"
+            f"🎁 <b>পয়েন্ট:</b> {user_row['reward_points']} pts\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"✨ দ্রুত ও বিশ্বস্ত সার্ভিসের জন্য নিচের মেন্যু ব্যবহার করুন:"
         )
         await smart_reply(update, welcome, UIBuilder.main_menu(user_row))
         return ConversationHandler.END
     
     welcome = (
-        f"🌤️━━━ ✦ <b>SKY TopUp</b> ✦ ━━━🌤️\n\n"
-        f"হ্যালো <b>{UIBuilder.safe_text(user.first_name or 'ভাই')}</b>! 👋\n\n"
-        f"আমাদের প্রিমিয়াম সার্ভিস ব্যবহার করতে প্রথমে রেজিস্ট্রেশন করুন।\n\n"
-        f"📌 <b>যা যা লাগবে:</b>\n"
-        f"  ✅ একটি Gmail ইমেইল\n"
-        f"  ✅ ইমেইল ভেরিফিকেশন\n"
-        f"  ✅ একটি নিরাপদ পাসওয়ার্ড\n\n"
-        f"━━━━━━━━━━━━━━━━\n"
-        f"📧 <b>দয়া করে আপনার Gmail ইমেইল দিন:</b>"
+        f"⚡ <b>SKY TOPUP — PREMIUM BOT</b> ⚡\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"হ্যালো, <b>{UIBuilder.safe_text(user.first_name or 'গ্রাহক')}</b>! 👋\n\n"
+        f"আমাদের হাই-স্পিড টপ-আপ সার্ভিস ব্যবহার করতে হলে প্রথমে মাত্র ১ মিনিটে ইমেল ভেরিফিকেশন সম্পন্ন করুন।\n\n"
+        f"📌 <b>ভেরিফিকেশনের জন্য প্রয়োজন:</b>\n"
+        f" └ 📧 সচল জিমেইল আইডি (Gmail)\n"
+        f" └ 🔑 ওটিপি ভেরিফিকেশন (OTP Code)\n"
+        f" └ 🔐 নিজের পছন্দমতো স্ট্রং পাসওয়ার্ড\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👉 <b>শুরু করতে আপনার জিমেইল এড্রেসটি এখানে লিখুন:</b>"
     )
     await update.message.reply_text(welcome, parse_mode=ParseMode.HTML)
     return REG_EMAIL
@@ -428,19 +429,19 @@ async def reg_receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not is_valid_email(email):
         await update.message.reply_text(
-            "❌ <b>ভুল ইমেইল ফরম্যাট!</b>\n\n"
-            "দয়া করে সঠিক Gmail ইমেইল দিন:\n"
-            "উদাহরণ: <code>yourname@gmail.com</code>\n\n"
-            "অথবা /cancel দিয়ে বাতিল করুন।",
+            "❌ <b>ভুল বা অবৈধ ইমেইল ফরম্যাট!</b>\n\n"
+            "অনুগ্রহ করে সঠিক ফরম্যাটে জিমেইল দিন।\n"
+            "যেমন: <code>username@gmail.com</code>\n\n"
+            "<i>(বাতিল করতে /cancel টাইপ করুন)</i>",
             parse_mode=ParseMode.HTML,
         )
         return REG_EMAIL
     
     if get_user_by_email(email):
         await update.message.reply_text(
-            "ℹ️ <b>ইমেইলটি ইতিমধ্যে রেজিস্টার করা আছে!</b>\n\n"
-            "• /start দিয়ে আবার চেষ্টা করুন\n"
-            "• অথবা সাপোর্ট টিমের সাথে যোগাযোগ করুন",
+            "⚠️ <b>দুঃখিত! এই ইমেইলটি ইতিমধ্যে ব্যবহৃত হয়েছে।</b>\n\n"
+            "• নতুন কোনো ইমেইল ব্যবহার করুন।\n"
+            "• অথবা যেকোনো প্রয়োজনে এডমিন সাপোর্টে যোগাযোগ করুন।",
             parse_mode=ParseMode.HTML,
         )
         return ConversationHandler.END
@@ -460,24 +461,25 @@ async def reg_receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if sent and not Config.DEV_MODE:
         await update.message.reply_text(
-            f"📬━━━ ✦ <b>OTP পাঠানো হয়েছে</b> ✦ ━━━📬\n\n"
-            f"✅ <code>{email}</code> এই ইমেইলে একটি ৬-সংখ্যার ভেরিফিকেশন কোড পাঠানো হয়েছে।\n\n"
-            f"⏰ <b>মেয়াদ:</b> {Config.OTP_VALID_MINUTES} মিনিট\n"
-            f"🔒 কোডটি কারো সাথে শেয়ার করবেন না!\n\n"
-            f"কোডটি নিচে লিখুন 👇",
+            f"📬 <b>OTP পাঠানো হয়েছে!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"✅ আপনার ইমেইল: <code>{email}</code>\n"
+            f"একটি ৬-সংখ্যার ওটিপি কোড পাঠানো হয়েছে।\n\n"
+            f"⏳ <b>মেয়াদ:</b> {Config.OTP_VALID_MINUTES} মিনিট।\n"
+            f"🔒 নিরাপত্তার স্বার্থে ওটিপি কাউকে শেয়ার করবেন না।\n\n"
+            f"👇 <b>কোডটি নিচে টাইপ করুন:</b>",
             parse_mode=ParseMode.HTML,
         )
     else:
+        # SMTP কনফিগার না থাকলে ডেভেলপারদের সুবিধার্থে OTP মেসেজে দেখাবে
         await update.message.reply_text(
-            f"⚠️ <b>ডেভেলপমেন্ট মোড</b>\n\n"
+            f"⚙️ <b>টেস্টিং / ডেভেলপার মোড</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📧 <b>ইমেইল:</b> <code>{email}</code>\n"
-            f"🔑 <b>OTP কোড:</b> <code>{otp}</code>\n\n"
-            f"⏰ এই কোড {Config.OTP_VALID_MINUTES} মিনিটের জন্য বৈধ।\n\n"
-            f"⚠️ <b>প্রোডাকশন ওয়ার্নিং:</b>\n"
-            f"SMTP_EMAIL এবং SMTP_PASSWORD সেট না থাকায় "
-            f"যেকেউ যেকোনো ইমেইল দিয়ে রেজিস্টার করতে পারে!\n"
-            f"প্রোডাকশনে দেওয়ার আগে অবশ্যই ইমেইল কনফিগার করুন।\n\n"
-            f"কোডটি নিচে লিখুন 👇",
+            f"🔑 <b>সিস্টেম OTP কোড:</b> <code>{otp}</code>\n\n"
+            f"⏳ <b>মেয়াদ:</b> {Config.OTP_VALID_MINUTES} মিনিট।\n\n"
+            f"⚠️ <i>বিকাশকারী সতর্কতা: জিমেইল এবং অ্যাপ পাসওয়ার্ড পুরোপুরি সচল করা রয়েছে। প্রোডাকশন টেস্ট হিসেবে ওটিপি সাবমিট করুন।</i>\n\n"
+            f"👇 <b>কোডটি নিচে টাইপ করুন:</b>",
             parse_mode=ParseMode.HTML,
         )
     
@@ -499,7 +501,7 @@ async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not row:
         await update.message.reply_text(
-            "❌ <b>OTP পাওয়া যায়নি!</b>\n\nদয়া করে /start দিয়ে আবার শুরু করুন।",
+            "❌ <b>ওটিপি পাওয়া যায়নি!</b>\n\nদয়া করে /start চাপুন এবং নতুন করে চেষ্টা করুন।",
             parse_mode=ParseMode.HTML,
         )
         return ConversationHandler.END
@@ -508,7 +510,7 @@ async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expires = datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S")
         if datetime.utcnow() > expires:
             await update.message.reply_text(
-                "⌛ <b>OTP-এর মেয়াদ শেষ!</b>\n\n/start দিয়ে আবার চেষ্টা করুন।",
+                "⌛ <b>ওটিপি কোডের মেয়াদ শেষ হয়ে গেছে!</b>\n\nআবার নতুন করে শুরু করতে /start দিন।",
                 parse_mode=ParseMode.HTML,
             )
             return ConversationHandler.END
@@ -521,7 +523,7 @@ async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with db() as conn:
             conn.execute("UPDATE otp_codes SET is_used = 1 WHERE id = ?", (row["id"],))
         await update.message.reply_text(
-            "❌ <b>অনেকবার ভুল OTP!</b>\n\nনিরাপত্তার জন্য কোডটি ব্লক করা হয়েছে।\n/start দিয়ে আবার চেষ্টা করুন।",
+            "❌ <b>অতিরিক্ত ভুলের কারণে ওটিপি বাতিল করা হয়েছে!</b>\n\nনিরাপত্তাজনিত কারণে আবার শুরু করতে /start দিন।",
             parse_mode=ParseMode.HTML,
         )
         return ConversationHandler.END
@@ -529,7 +531,9 @@ async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if entered_otp != row["otp_code"]:
         remaining = Config.MAX_OTP_ATTEMPTS - attempts
         await update.message.reply_text(
-            f"❌ <b>ভুল OTP!</b>\n\nআর {remaining} বার চেষ্টা করতে পারবেন।\nআবার চেষ্টা করুন:",
+            f"❌ <b>ভুল ওটিপি কোড!</b>\n\n"
+            f"আপনার আর মাত্র {remaining} বার সুযোগ রয়েছে।\n"
+            f"সঠিক ওটিপি কোডটি পুনরায় টাইপ করুন:",
             parse_mode=ParseMode.HTML,
         )
         return REG_OTP
@@ -538,10 +542,11 @@ async def reg_receive_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.execute("UPDATE otp_codes SET is_used = 1 WHERE id = ?", (row["id"],))
     
     await update.message.reply_text(
-        "✅━━━ ✦ <b>OTP সফলভাবে যাচাই!</b> ✦ ━━━✅\n\n"
-        "এখন একটি <b>নিরাপদ পাসওয়ার্ড</b> সেট করুন:\n\n"
-        f"🔐 <b>শর্ত:</b> ন্যূনতম {Config.MIN_PASSWORD_LENGTH} অক্ষর\n\n"
-        "পাসওয়ার্ড লিখুন 👇",
+        "✅ <b>ইমেইল সফলভাবে ভেরিফাইড হয়েছে!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🔐 <b>একটি নিরাপদ পাসওয়ার্ড সেট করুন:</b>\n"
+        f"└ ন্যূনতম {Config.MIN_PASSWORD_LENGTH} অক্ষরের হতে হবে।\n\n"
+        "👇 <b>পাসওয়ার্ডটি নিচে লিখুন:</b>",
         parse_mode=ParseMode.HTML,
     )
     return REG_PASSWORD
@@ -552,7 +557,9 @@ async def reg_receive_password(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if len(password) < Config.MIN_PASSWORD_LENGTH:
         await update.message.reply_text(
-            f"❌ <b>পাসওয়ার্ড খুব ছোট!</b>\n\nন্যূনতম {Config.MIN_PASSWORD_LENGTH} অক্ষর হতে হবে।\nআবার পাসওয়ার্ড দিন:",
+            f"❌ <b>পাসওয়ার্ডটি অত্যন্ত ছোট!</b>\n\n"
+            f"নিরাপত্তার স্বার্থে ন্যূনতম {Config.MIN_PASSWORD_LENGTH} অক্ষরের পাসওয়ার্ড দিন:\n"
+            f"আবার পাসওয়ার্ড লিখুন:",
             parse_mode=ParseMode.HTML,
         )
         return REG_PASSWORD
@@ -564,7 +571,8 @@ async def reg_receive_password(update: Update, context: ContextTypes.DEFAULT_TYP
     
     context.user_data["reg_password"] = password
     await update.message.reply_text(
-        "🔐 <b>পাসওয়ার্ড কনফার্মেশন</b>\n\nপাসওয়ার্ডটি আবার লিখুন 👇",
+        "🔐 <b>পাসওয়ার্ড নিশ্চিত করুন:</b>\n\n"
+        "পাসওয়ার্ডটি পুনরায় নিচে টাইপ করুন 👇",
         parse_mode=ParseMode.HTML,
     )
     return REG_CONFIRM_PASSWORD
@@ -581,7 +589,8 @@ async def reg_confirm_password(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if confirm_pass != password:
         await update.message.reply_text(
-            "❌ <b>পাসওয়ার্ড মিলছে না!</b>\n\nআবার পাসওয়ার্ড দিন:",
+            "❌ <b>দুঃখিত, পাসওয়ার্ড দুইটি মেলেনি!</b>\n\n"
+            "অনুগ্রহ করে নতুন করে পাসওয়ার্ডটি দিন:",
             parse_mode=ParseMode.HTML,
         )
         return REG_PASSWORD
@@ -599,22 +608,22 @@ async def reg_confirm_password(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.info("✅ New user registered: %s (%s)", telegram_id, email)
     except sqlite3.IntegrityError:
         await update.message.reply_text(
-            "❌ রেজিস্ট্রেশন ব্যর্থ! /start দিয়ে আবার চেষ্টা করুন।",
+            "❌ রেজিস্ট্রেশন ব্যর্থ হয়েছে। আবার শুরু করতে /start দিন।",
             parse_mode=ParseMode.HTML,
         )
         return ConversationHandler.END
     
     context.user_data.clear()
-    update_balance(telegram_id, 10.0)  # Welcome bonus
+    update_balance(telegram_id, 10.0)  # ওয়েলকাম বোনাস
     
     await smart_reply(
         update,
-        f"🎉━━━ ✦ <b>রেজিস্ট্রেশন সফল!</b> ✦ ━━━🎉\n\n"
-        f"আপনার অ্যাকাউন্ট তৈরি হয়েছে!\n\n"
-        f"👤 নাম: {UIBuilder.safe_text(name)}\n"
-        f"📧 ইমেইল: <code>{email}</code>\n"
-        f"💰 ওয়েলকাম বোনাস: ৳১০ 🎁\n\n"
-        f"নিচের মেনু থেকে শুরু করুন 👇",
+        f"🎉 <b>অভিনন্দন! রেজিস্ট্রেশন সফল হয়েছে!</b> 🎉\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 <b>নাম:</b> {UIBuilder.safe_text(name)}\n"
+        f"📧 <b>ইমেইল:</b> <code>{email}</code>\n"
+        f"🎁 <b>ওয়েলকাম বোনাস:</b> ৳ ১০.০০ (আপনার ব্যালেন্সে যোগ করা হয়েছে!)\n\n"
+        f"সবচেয়ে কম মূল্যে টপ-আপের আনন্দ উপভোগ করুন! 👇",
     )
     await show_main_menu_ui(update, context)
     return ConversationHandler.END
@@ -622,7 +631,7 @@ async def reg_confirm_password(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await smart_reply(update, "❌ <b>প্রক্রিয়া বাতিল করা হয়েছে।</b>\n\n/start লিখুন।")
+    await smart_reply(update, "❌ <b>চলমান প্রক্রিয়াটি বাতিল করা হয়েছে।</b>\n\nপ্রধান মেন্যুতে যেতে /start লিখুন।")
     return ConversationHandler.END
 
 
@@ -633,17 +642,18 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_row = get_user(str(update.effective_user.id))
     if not user_row:
-        await smart_reply(update, "⚠️ /start দিয়ে রেজিস্টার করুন।")
+        await smart_reply(update, "⚠️ সিস্টেম ত্রুটি। সেশন চালু করতে অনুগ্রহ করে /start দিন।")
         return
     
     welcome = (
-        f"🌤️━━━ ✦ <b>SKY TopUp</b> ✦ ━━━🌤️\n\n"
-        f"👋 <b>স্বাগতম, {UIBuilder.safe_text(user_row['name'])}!</b>\n"
-        f"━━━━━━━━━━━━━━━━\n\n"
-        f"💳 <b>ব্যালেন্স:</b> ৳{user_row['balance']:,.2f}\n"
-        f"🏆 <b>র‍্যাংক:</b> {user_row['rank']}\n\n"
-        f"━━━━━━━━━━━━━━━━\n"
-        f"নিচের মেনু থেকে নির্বাচন করুন 👇"
+        f"⚡ <b>SKY TOPUP — PREMIUM BOT</b> ⚡\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👋 স্বাগতম, <b>{UIBuilder.safe_text(user_row['name'])}</b>!\n\n"
+        f"💳 <b>ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
+        f"🏅 <b>র‍্যাংক:</b> {user_row['rank']}\n"
+        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']} pts\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✨ নিচের ইন্টারেক্টিভ মেন্যু থেকে অপশন নির্বাচন করুন:"
     )
     await edit_or_reply(update, welcome, UIBuilder.main_menu(user_row))
 
@@ -687,12 +697,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_categories_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🎮 গেম টপ-আপ", callback_data="category_game")],
-        [InlineKeyboardButton("🎬 সাবস্ক্রিপশন", callback_data="category_subscribe")],
-        [InlineKeyboardButton("⬅️ মেইন মেনু", callback_data="back_main")],
+        [InlineKeyboardButton("🍿 ওটিটি ও সাবস্ক্রিপশন", callback_data="category_subscribe")],
+        [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")],
     ]
     await edit_or_reply(
         update,
-        "📂━━━ ✦ <b>প্রোডাক্ট ক্যাটাগরি</b> ✦ ━━━📂\n\nনিচ থেকে নির্বাচন করুন 👇",
+        "📂 <b>প্রোডাক্ট ক্যাটাগরি</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "নিচে থেকে আপনার পছন্দের প্রোডাক্টের ধরণ নির্বাচন করুন 👇",
         InlineKeyboardMarkup(keyboard),
     )
 
@@ -704,19 +716,21 @@ async def show_products_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, c
         ).fetchall()
     
     if not products:
-        await edit_or_reply(update, "😕 <b>কোনো প্রোডাক্ট নেই!</b>", UIBuilder.back_button("back_shop"))
+        await edit_or_reply(update, "⚠️ <b>দুঃখিত! এই ক্যাটাগরিতে বর্তমানে কোনো প্রোডাক্ট স্টক নেই।</b>", UIBuilder.back_button("back_shop"))
         return
     
     keyboard = [
         [InlineKeyboardButton(f"{p['icon']} {p['name']}", callback_data=f"product_{p['id']}")]
         for p in products
     ]
-    keyboard.append([InlineKeyboardButton("⬅️ ফিরে যান", callback_data="back_shop")])
+    keyboard.append([InlineKeyboardButton("⬅️ পিছনে যান", callback_data="back_shop")])
     
-    category_names = {"game": "🎮 গেম টপ-আপ", "subscribe": "🎬 সাবস্ক্রিপশন"}
+    category_names = {"game": "🎮 গেম টপ-আপ স্টোর", "subscribe": "🎬 সাবস্ক্রিপশন প্ল্যানসমূহ"}
     await edit_or_reply(
         update,
-        f"📦━━━ ✦ <b>{category_names.get(category, category)}</b> ✦ ━━━📦\n\nপ্রোডাক্ট সিলেক্ট করুন 👇",
+        f"📦 <b>{category_names.get(category, category)}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"আপনার কাঙ্ক্ষিত প্রোডাক্ট নির্বাচন করুন 👇",
         InlineKeyboardMarkup(keyboard),
     )
 
@@ -726,19 +740,22 @@ async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     
     if not product:
-        await edit_or_reply(update, "❌ <b>প্রোডাক্ট পাওয়া যায়নি!</b>", UIBuilder.back_button("back_shop"))
+        await edit_or_reply(update, "❌ <b>প্রোডাক্টটি খুঁজে পাওয়া যায়নি!</b>", UIBuilder.back_button("back_shop"))
         return
     
     options = json.loads(product["options"])
     keyboard = [
-        [InlineKeyboardButton(f"{opt['amount']} — ৳{opt['price']:,}", callback_data=f"package_{product_id}_{idx}")]
+        [InlineKeyboardButton(f"{opt['amount']} ➔ ৳{opt['price']:,}", callback_data=f"package_{product_id}_{idx}")]
         for idx, opt in enumerate(options)
     ]
-    keyboard.append([InlineKeyboardButton("⬅️ ফিরে যান", callback_data="back_shop")])
+    keyboard.append([InlineKeyboardButton("⬅️ পিছনে যান", callback_data="back_shop")])
     
     await edit_or_reply(
         update,
-        f"📦━━━ ✦ <b>{product['name']}</b> ✦ ━━━📦\n\nপ্যাকেজ সিলেক্ট করুন 👇",
+        f"⚡ <b>{product['icon']} {product['name']}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📌 <b>বিবরণ:</b> {product['description'] or 'সেরা মূল্যে ও দ্রুত ডেলিভারি।'}\n\n"
+        f"ডেলিভারি নিতে যেকোনো একটি প্যাকেজ বেছে নিন 👇",
         InlineKeyboardMarkup(keyboard),
     )
 
@@ -753,7 +770,7 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
     
     parts = query.data.split("_")
     if len(parts) != 3:
-        await query.message.reply_text("❌ ভুল তথ্য!")
+        await query.message.reply_text("❌ সিস্টেমে ভুল তথ্য প্রবেশ করানো হয়েছে!")
         return ConversationHandler.END
     
     _, product_id_str, package_idx_str = parts
@@ -763,7 +780,7 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
         product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     
     if not product:
-        await query.message.reply_text("❌ <b>প্রোডাক্ট পাওয়া যায়নি!</b>", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("❌ <b>প্রোডাক্ট পাওয়া যায়নি!</b>", parse_mode=ParseMode.HTML)
         return ConversationHandler.END
     
     options = json.loads(product["options"])
@@ -771,16 +788,18 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
     user_row = get_user(str(update.effective_user.id))
     
     if not user_row:
-        await query.message.reply_text("⚠️ /start দিয়ে রেজিস্টার করুন।", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("⚠️ সেশন চালু করতে অনুগ্রহ করে /start দিন।", parse_mode=ParseMode.HTML)
         return ConversationHandler.END
     
     price = selected_package["price"]
     if user_row["balance"] < price:
         await query.message.reply_text(
-            f"❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\n"
-            f"💰 আপনার ব্যালেন্স: ৳{user_row['balance']:,.2f}\n"
-            f"💸 প্রয়োজন: ৳{price:,.2f}\n\n"
-            f"➕ রিচার্জ করতে মেনু থেকে 'রিচার্জ' সিলেক্ট করুন।",
+            f"⚠️ <b>দুঃখিত, পর্যাপ্ত ব্যালেন্স নেই!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 <b>আপনার ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
+            f"💸 <b>প্যাকেজ মূল্য:</b> ৳ {price:,.2f}\n"
+            f"🔄 <b>ঘাটতি ব্যালেন্স:</b> ৳ {price - user_row['balance']:,.2f}\n\n"
+            f"👉 অনুগ্রহ করে মেইন মেন্যু থেকে <b>'➕ ইনস্ট্যান্ট রিচার্জ'</b> করে আবার ট্রাই করুন।",
             parse_mode=ParseMode.HTML,
         )
         return ConversationHandler.END
@@ -789,12 +808,13 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
     context.user_data["order_package"] = selected_package
     
     await query.message.reply_text(
-        f"🛒━━━ ✦ <b>অর্ডার কনফার্মেশন</b> ✦ ━━━🛒\n\n"
+        f"🛒 <b>অর্ডার চেকআউট / কনফার্মেশন</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📦 <b>প্রোডাক্ট:</b> {product['name']}\n"
         f"📎 <b>প্যাকেজ:</b> {selected_package['amount']}\n"
-        f"💰 <b>মূল্য:</b> ৳{price:,.2f}\n\n"
-        f"আপনার {product['name'].split()[0]} ID/ইউজারনেম/ইমেইল দিন\n"
-        f"(অথবা /cancel দিয়ে বাতিল করুন):",
+        f"💰 <b>মোট মূল্য:</b> ৳ {price:,.2f}\n\n"
+        f"👉 টপ-আপের জন্য আপনার <b>ID / UID / Username / Gmail</b> প্রদান করুন:\n"
+        f"<i>(ভুল আইডি দিলে ডেলিভারি ব্যাহত হবে। বাতিল করতে /cancel লিখুন)</i>",
         parse_mode=ParseMode.HTML,
     )
     return ORDER_DETAILS_STATE
@@ -802,12 +822,16 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
 
 async def receive_order_details_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "order_product_name" not in context.user_data:
-        await update.message.reply_text("❌ সেশন শেষ! /start দিয়ে শুরু করুন।")
+        await update.message.reply_text("❌ সেশনের সময় শেষ! দয়া করে /start দিয়ে নতুনভাবে শুরু করুন।")
         return ConversationHandler.END
     
     user_details = update.message.text.strip()
     if not user_details or len(user_details) < 3:
-        await update.message.reply_text("❌ <b>ভালো করে লিখুন!</b>\n\nআবার দিন:", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "❌ <b>ইনপুট অসম্পূর্ণ বা অত্যন্ত ছোট!</b>\n\n"
+            "অনুগ্রহ করে সঠিক ও স্পষ্ট আইডি তথ্য লিখুন:", 
+            parse_mode=ParseMode.HTML
+        )
         return ORDER_DETAILS_STATE
     
     product_name = context.user_data["order_product_name"]
@@ -829,19 +853,21 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
             conn.execute("UPDATE users SET reward_points = reward_points + ? WHERE telegram_id = ?", (reward, telegram_id))
     except sqlite3.Error as e:
         logger.error("Order failed: %s", e)
-        await update.message.reply_text("❌ অর্ডার ব্যর্থ! আবার চেষ্টা করুন।")
+        await update.message.reply_text("❌ ডাটাবেজ ত্রুটির কারণে অর্ডার ব্যর্থ হয়েছে। আবার ট্রাই করুন।")
         return ConversationHandler.END
     
     context.user_data.clear()
     
     await update.message.reply_text(
-        f"✅━━━ ✦ <b>অর্ডার সফল!</b> ✦ ━━━✅\n\n"
-        f"🆔 <b>অর্ডার ID:</b> <code>{order_id}</code>\n"
+        f"🎉 <b>আপনার অর্ডারটি সফল হয়েছে!</b> 🎉\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🆔 <b>অর্ডার আইডি:</b> <code>{order_id}</code>\n"
         f"📦 <b>প্রোডাক্ট:</b> {product_name}\n"
         f"📎 <b>প্যাকেজ:</b> {package['amount']}\n"
-        f"💰 <b>মূল্য:</b> ৳{price:,.2f}\n"
-        f"🎁 <b>রিওয়ার্ড:</b> +{reward} পয়েন্ট\n\n"
-        f"⏳ আপনার অর্ডার প্রসেসিং হচ্ছে। ধন্যবাদ! 🎉",
+        f"💰 <b>পরিশোধিত:</b> ৳ {price:,.2f} <i>(ব্যালেন্স থেকে কর্তিত)</i>\n"
+        f"🎁 <b>অর্জিত পয়েন্ট:</b> +{reward} pts\n"
+        f"👤 <b>আইডি তথ্য:</b> <code>{user_details}</code>\n\n"
+        f"⚡ আমাদের টিম সর্বোচ্চ ৫-১৫ মিনিটের মধ্যে আপনার অর্ডারটি ডেলিভারি করে দিবে। ধন্যবাদ!",
         parse_mode=ParseMode.HTML,
     )
     return ConversationHandler.END
@@ -850,7 +876,7 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
 async def cancel_order_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for key in ["order_product_name", "order_package"]:
         context.user_data.pop(key, None)
-    await update.message.reply_text("❌ অর্ডার বাতিল করা হয়েছে।")
+    await update.message.reply_text("❌ আপনার অর্ডার প্রক্রিয়াটি বাতিল করা হয়েছে।")
     return ConversationHandler.END
 
 
@@ -861,20 +887,21 @@ async def cancel_order_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 async def show_balance_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_row = get_user(str(update.effective_user.id))
     if not user_row:
-        await edit_or_reply(update, "⚠️ /start দিন।")
+        await edit_or_reply(update, "⚠️ সেশন আউট। /start দিন।")
         return
     
     msg = (
-        f"💰━━━ ✦ <b>আমার ব্যালেন্স</b> ✦ ━━━💰\n\n"
+        f"💰 <b>আমার ওয়ালেট ও ব্যালেন্স</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👤 <b>নাম:</b> {UIBuilder.safe_text(user_row['name'])}\n"
-        f"💵 <b>ব্যালেন্স:</b> ৳{user_row['balance']:,.2f}\n"
-        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']:,}\n"
-        f"🏆 <b>র‍্যাংক:</b> {user_row['rank']}\n\n"
-        f"➕ ব্যালেন্স যোগ করতে 'রিচার্জ' এ ক্লিক করুন 👇"
+        f"💳 <b>কারেন্ট ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
+        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']:,} pts\n"
+        f"🏅 <b>ইউজার র‍্যাংক:</b> {user_row['rank']}\n\n"
+        f"⚡ ব্যালেন্স রিচার্জ করতে নিচের <b>'➕ রিচার্জ করুন'</b> বাটনে ক্লিক করুন 👇"
     )
     keyboard = [
         [InlineKeyboardButton("➕ রিচার্জ করুন", callback_data="recharge")],
-        [InlineKeyboardButton("⬅️ মেইন মেনু", callback_data="back_main")],
+        [InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")],
     ]
     await edit_or_reply(update, msg, InlineKeyboardMarkup(keyboard))
 
@@ -889,36 +916,45 @@ async def show_orders_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not orders:
         await edit_or_reply(
             update,
-            "📭 <b>কোনো অর্ডার নেই!</b>\n\n🛒 শপে গিয়ে অর্ডার করুন 👇",
+            "📭 <b>আপনি এখনও কোনো অর্ডার করেননি!</b>\n\nশপ ক্যাটাগরি থেকে আপনার প্রথম অর্ডারটি করুন 👇",
             InlineKeyboardMarkup([
-                [InlineKeyboardButton("🛒 শপে যান", callback_data="shop")],
-                [InlineKeyboardButton("⬅️ মেইন মেনু", callback_data="back_main")],
+                [InlineKeyboardButton("🛒 প্রোডাক্ট শপ", callback_data="shop")],
+                [InlineKeyboardButton("⬅️ প্রধান মেন্যু", callback_data="back_main")],
             ]),
         )
         return
     
-    lines = ["📦━━━ ✦ <b>সর্বশেষ ১০টি অর্ডার</b> ✦ ━━━📦\n"]
+    lines = ["📦 <b>আপনার শেষ ১০টি অর্ডারের ইতিহাস</b>\n"
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"]
     for o in orders:
         lines.append(
-            f"━━━━━━━━━━━━━━━━\n"
             f"🆔 <code>{o['order_id']}</code>\n"
-            f"  📦 {o['product_name']} - {o['package']}\n"
-            f"  💰 ৳{o['price']:,.2f} | {o['status']}\n"
-            f"  📅 {o['created_at']}"
+            f" └ 📦 {o['product_name']} ({o['package']})\n"
+            f" └ 💰 ৳{o['price']:,.2f} | {o['status']}\n"
+            f" └ 📅 {o['created_at']}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
     await edit_or_reply(update, "\n".join(lines), UIBuilder.back_button("back_main"))
 
 
 async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📱 bKash", callback_data="recharge_bkash")],
-        [InlineKeyboardButton("📱 Nagad", callback_data="recharge_nagad")],
-        [InlineKeyboardButton("📱 Rocket", callback_data="recharge_rocket")],
-        [InlineKeyboardButton("⬅️ মেইন মেনু", callback_data="back_main")],
+        [
+            InlineKeyboardButton("📱 বিকাশ (bKash)", callback_data="recharge_bkash"),
+            InlineKeyboardButton("📱 নগদ (Nagad)", callback_data="recharge_nagad")
+        ],
+        [
+            InlineKeyboardButton("📱 রকেট (Rocket)", callback_data="recharge_rocket")
+        ],
+        [
+            InlineKeyboardButton("⬅️ প্রধান মেন্যুতে ফিরুন", callback_data="back_main")
+        ],
     ]
     await edit_or_reply(
         update,
-        "💰━━━ ✦ <b>ব্যালেন্স রিচার্জ</b> ✦ ━━━💰\n\nপেমেন্ট মেথড সিলেক্ট করুন 👇",
+        "💳 <b>ইনস্ট্যান্ট ওয়ালেট রিচার্জ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "আমাদের স্বয়ংক্রিয় গেটওয়ে পেমেন্ট সচল রয়েছে। নিচে থেকে আপনার পেমেন্ট মাধ্যমটি সিলেক্ট করুন 👇",
         InlineKeyboardMarkup(keyboard),
     )
 
@@ -933,11 +969,16 @@ async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DE
     
     await edit_or_reply(
         update,
-        f"💳━━━ ✦ <b>{method.title()} পেমেন্ট</b> ✦ ━━━💳\n\n"
-        f"📌 নিচের নম্বরে টাকা পাঠান:\n"
-        f"<code>{number}</code>\n\n"
-        f"পেমেন্ট করার পর TrxID ও স্ক্রিনশট সাপোর্টে পাঠান।\n\n"
-        f"👨‍💻 সাপোর্ট: @SkyTopUpSupport",
+        f"💳 <b>{method.upper()} পেমেন্ট মেথড</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📌 <b>সেন্ড মানি করার নির্দেশনা:</b>\n"
+        f" └ আমাদের {method.title()} পার্সোনাল নম্বর:\n"
+        f"   👉 <code>{number}</code> <i>(নম্বরটি কপি করতে ক্লিক করুন)</i>\n\n"
+        f"📥 <b>টাকা পাঠানোর পর করণীয়:</b>\n"
+        f"১. সফল লেনদেনের TrxID এবং পেমেন্ট স্ক্রিনশটটি সংরক্ষণ করুন।\n"
+        f"২. আমাদের অফিশিয়াল সাপোর্ট অ্যাকাউন্টে সেন্ড করুন।\n"
+        f"৩. ৫ মিনিটের মধ্যে আপনার অ্যাকাউন্টে টাকা ক্রেডিট হয়ে যাবে।\n\n"
+        f"👨‍💻 <b>সরাসরি পেমেন্ট সাপোর্ট:</b> @SkyTopUpSupport",
         UIBuilder.back_button("recharge"),
     )
 
@@ -945,17 +986,19 @@ async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DE
 async def show_profile_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_row = get_user(str(update.effective_user.id))
     if not user_row:
-        await edit_or_reply(update, "⚠️ /start দিন।")
+        await edit_or_reply(update, "⚠️ অ্যাকাউন্ট খুঁজে পাওয়া যায়নি। /start দিন।")
         return
     
     await edit_or_reply(
         update,
-        f"👤━━━ ✦ <b>প্রোফাইল</b> ✦ ━━━👤\n\n"
-        f"👤 <b>নাম:</b> {UIBuilder.safe_text(user_row['name'])}\n"
-        f"📧 <b>ইমেইল:</b> <code>{user_row['email']}</code>\n"
-        f"🏆 <b>র‍্যাংক:</b> {user_row['rank']}\n"
-        f"💰 <b>ব্যালেন্স:</b> ৳{user_row['balance']:,.2f}\n"
-        f"📅 <b>যোগদান:</b> {user_row['created_at']}",
+        f"👤 <b>ব্যবহারকারীর প্রোফাইল</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 <b>গ্রাহকের নাম:</b> {UIBuilder.safe_text(user_row['name'])}\n"
+        f"📧 <b>নিবন্ধিত ইমেইল:</b> <code>{user_row['email']}</code>\n"
+        f"🏅 <b>মেম্বারশিপ র‍্যাংক:</b> {user_row['rank']}\n"
+        f"💳 <b>ব্যালেন্স:</b> ৳ {user_row['balance']:,.2f}\n"
+        f"🎁 <b>রিওয়ার্ড পয়েন্ট:</b> {user_row['reward_points']:,} pts\n"
+        f"📅 <b>অ্যাকাউন্ট তৈরি:</b> {user_row['created_at']}",
         UIBuilder.back_button("back_main"),
     )
 
@@ -963,7 +1006,12 @@ async def show_profile_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_settings_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await edit_or_reply(
         update,
-        "⚙️━━━ ✦ <b>সেটিংস</b> ✦ ━━━⚙️\n\nশীঘ্রই আসছে:\n🔐 পাসওয়ার্ড পরিবর্তন\n🔔 নোটিফিকেশন\n🌐 ভাষা",
+        "⚙️ <b>সিস্টেম ও সেটিংস</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "⏳ <b>নিচের ফিচারগুলো পরবর্তী আপডেটে আসছে:</b>\n"
+        " ├ 🔐 পাসওয়ার্ড পরিবর্তন (Change Password)\n"
+        " ├ 🔔 নোটিফিকেশন অ্যালার্ট (Notification settings)\n"
+        " └ 🌐 ইন্টারফেস ভাষা পরিবর্তন (Language options)",
         UIBuilder.back_button("back_main"),
     )
 
@@ -971,10 +1019,14 @@ async def show_settings_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_help_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await edit_or_reply(
         update,
-        "❓━━━ ✦ <b>সাহায্য</b> ✦ ━━━❓\n\n"
-        "📌 <b>কমান্ড:</b>\n  /start - মেনু\n  /cancel - বাতিল\n\n"
-        "📌 যেকোনো সমস্যায় সাপোর্টে যোগাযোগ করুন:\n"
-        "👨‍💻 @SkyTopUpSupport",
+        "❓ <b>হেল্প সেন্টার ও সাপোর্ট</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🤖 <b>বটের প্রধান কমান্ডসমূহ:</b>\n"
+        " ├ /start - প্রধান ড্যাশবোর্ড ও মেন্যু ওপেন করুন\n"
+        " └ /cancel - যেকোনো চলমান প্রক্রিয়া বাতিল করুন\n\n"
+        "📌 <b>২৪/৭ কাস্টমার কেয়ার:</b>\n"
+        "টপ-আপ রিফান্ড, পেমেন্ট অ্যাড অথবা যেকোনো টেকনিক্যাল ইস্যুতে সরাসরি আমাদের সাপোর্ট টিমের সাথে কথা বলুন।\n\n"
+        "👉 <b>কাস্টমার সাপোর্ট আইডি:</b> @SkyTopUpSupport",
         UIBuilder.back_button("back_main"),
     )
 
@@ -982,7 +1034,7 @@ async def show_help_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_row = get_user(str(update.effective_user.id))
     if not user_row or not is_admin(user_row):
-        await edit_or_reply(update, "⛔ <b>অ্যাক্সেস নিষিদ্ধ!</b>", UIBuilder.back_button("back_main"))
+        await edit_or_reply(update, "⛔ <b>অ্যাক্সেস ডিনাইড! এই প্যানেলটি শুধুমাত্র অ্যাডমিনদের জন্য সংরক্ষিত।</b>", UIBuilder.back_button("back_main"))
         return
     
     with db() as conn:
@@ -992,16 +1044,17 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     await edit_or_reply(
         update,
-        f"🔧━━━ ✦ <b>এডমিন প্যানেল</b> ✦ ━━━🔧\n\n"
-        f"👥 মোট ইউজার: {total_users:,}\n"
-        f"⏳ পেন্ডিং অর্ডার: {pending_orders:,}\n"
-        f"💰 মোট আয়: ৳{total_revenue:,.2f}",
+        f"🛠️ <b>অ্যাডমিন কন্ট্রোল ড্যাশবোর্ড</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👥 <b>মোট রেজিস্টার্ড ইউজার:</b> {total_users:,} জন\n"
+        f"⏳ <b>পেন্ডিং অর্ডারসমূহ:</b> {pending_orders:,} টি\n"
+        f"💰 <b>মোট অর্জিত রেভিনিউ:</b> ৳ {total_revenue:,.2f}",
         UIBuilder.back_button("back_main"),
     )
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 🚀 MAIN
+# 🚀 MAIN RUNNER
 # ──────────────────────────────────────────────────────────────────────────
 
 def main():
@@ -1045,7 +1098,7 @@ def main():
     app.add_handler(order_handler)
     app.add_handler(CallbackQueryHandler(button_callback, pattern=r"^(?!package_)"))
     
-    logger.info("🌟 Sky TopUp Bot starting...")
+    logger.info("🌟 Sky TopUp Bot is now running on high performance...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
