@@ -6,7 +6,7 @@ from uuid import uuid4
 try:
     from aiogram import Bot, Dispatcher, F
     from aiogram.filters import Command, CommandStart
-    from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+    from aiogram.types import Message, CallbackQuery
     from aiogram.fsm.context import FSMContext
     from aiogram.fsm.state import State, StatesGroup
     from aiogram.fsm.storage.memory import MemoryStorage
@@ -19,7 +19,9 @@ BOT_TOKEN = "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk"
 ADMIN_IDS = [7689218221]
 SUPPORT_USERNAME = "FBSKYSUPPORT"
 
-# ─── DATABASE ───
+# ═══════════════════════════════════════
+# DATABASE
+# ═══════════════════════════════════════
 class DB:
     def __init__(self, path="store.db"):
         self.path = path
@@ -66,7 +68,9 @@ class DB:
                 id TEXT PRIMARY KEY,
                 category_id TEXT, name TEXT,
                 price REAL, bonus REAL DEFAULT 0,
-                stock_type TEXT, is_active INTEGER DEFAULT 1,
+                stock_type TEXT,
+                expiry_days INTEGER DEFAULT 30,
+                is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
             )""")
             c.execute("""CREATE TABLE IF NOT EXISTS stock(
@@ -77,96 +81,94 @@ class DB:
                 is_used INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now','+6 hours'))
             )""")
-            self._seed()
+            self._seed_if_empty()
     
-    def _seed(self):
+    def _seed_if_empty(self):
         with self._conn() as c:
             count = c.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
-            if count == 0:
-                mains = [
-                    ("freefire", None, "🔥 Free Fire BD", "Diamonds, Weekly, Lite, Likes"),
-                    ("subscriptions", None, " Premium Subscriptions", "Netflix, YouTube, Crunchyroll"),
-                    ("vpn_plus", None, " VPN Plus", "ExpressVPN, HMA, Proxy, VPS"),
-                    ("topup", None, "💰 Wallet Top-Up", "Add balance instantly")
-                ]
-                for cid, pid, name, desc in mains:
-                    c.execute("INSERT INTO categories(id,parent_id,name,description) VALUES(?,?,?,?)",
-                             (cid, pid, name, desc))
-                
-                subs = [
-                    ("ff_diamonds", "freefire", "💎 Diamonds"),
-                    ("ff_weekly", "freefire", "📆 Weekly"),
-                    ("ff_lite", "freefire", "⭐ Weekly Lite"),
-                    ("ff_like", "freefire", "❤️ Like Service"),
-                    ("netflix", "subscriptions", "🎬 Netflix Premium"),
-                    ("youtube", "subscriptions", "▶️ YouTube Premium"),
-                    ("crunchyroll", "subscriptions", "🍿 Crunchyroll")
-                ]
-                for cid, pid, name in subs:
-                    c.execute("INSERT INTO categories(id,parent_id,name) VALUES(?,?,?)", (cid, pid, name))
-                
-                prods = [
-                    ("ff_25d","ff_diamonds","💎 25 Diamond",20,0,None),
-                    ("ff_50d","ff_diamonds","💎 50 Diamond",35,0,None),
-                    ("ff_115d","ff_diamonds","💎 115 Diamond",79,0,None),
-                    ("ff_240d","ff_diamonds","💎 240 Diamond",156,0,None),
-                    ("ff_355d","ff_diamonds"," 355 Diamond",237,0,None),
-                    ("ff_505d","ff_diamonds","💎 505 Diamond",336,0,None),
-                    ("ff_610d","ff_diamonds","💎 610 Diamond",390,0,None),
-                    ("ff_850d","ff_diamonds"," 850 Diamond",558,0,None),
-                    ("ff_1090d","ff_diamonds","💎 1090 Diamond",716,0,None),
-                    ("ff_1240d","ff_diamonds","💎 1240 Diamond",795,0,None),
-                    ("ff_2530d","ff_diamonds","💎 2530 Diamond",1580,0,None),
-                    ("ff_5060d","ff_diamonds","💎 5060 Diamond",3160,0,None),
-                    ("ff_7590d","ff_diamonds"," 7590 Diamond",4800,0,None),
-                    ("ff_10120d","ff_diamonds","💎 10120 Diamond",6400,0,None),
-                    ("ffw_1","ff_weekly","📆 1x Weekly",155,0,None),
-                    ("ffw_2","ff_weekly","📆 2x Weekly",310,0,None),
-                    ("ffw_3","ff_weekly"," 3x Weekly",465,0,None),
-                    ("ffw_5","ff_weekly","📆 5x Weekly",775,0,None),
-                    ("ffw_m","ff_weekly","📆 Monthly",765,0,None),
-                    ("ffw_2m","ff_weekly","📆 2x Monthly",1540,0,None),
-                    ("ffw_3m","ff_weekly","📆 3x Monthly",2295,0,None),
-                    ("ffw_5m","ff_weekly","📆 5x Monthly",3825,0,None),
-                    ("ffw_1w1m","ff_weekly","📆 1Week+1Month",930,0,None),
-                    ("ffw_4w1m","ff_weekly"," 4Week+1Month",1395,0,None),
-                    ("ffl_1","ff_lite","⭐ 1x Weekly Lite",40,0,None),
-                    ("ffl_2","ff_lite","⭐ 2x Weekly Lite",80,0,None),
-                    ("ffl_3","ff_lite","⭐ 3x Weekly Lite",120,0,None),
-                    ("ffl_5","ff_lite","⭐ 5x Weekly Lite",200,0,None),
-                    ("fflk_200","ff_like","❤️ 200 Likes",20,0,None),
-                    ("fflk_1000","ff_like","❤️ 1000 Likes",100,0,None),
-                    ("fflk_2000","ff_like","❤️ 2000 Likes",200,0,None),
-                    ("fflk_5000","ff_like","❤️ 5000 Likes",500,0,None),
-                    ("fflk_10000","ff_like","❤️ 10000 Likes",1000,0,None),
-                    ("nf_single","netflix"," Single Profile (1M)",400,0,None),
-                    ("nf_full","netflix","🎬 Full Account (1M)",1830,0,None),
-                    ("yt_1m","youtube","▶️ 1 Month",100,0,None),
-                    ("yt_3m","youtube","▶️ 3 Months",200,0,None),
-                    ("yt_6m","youtube","▶️ 6 Months",300,0,None),
-                    ("yt_1y","youtube","▶️ 1 Year",490,0,None),
-                    ("cr_shared","crunchyroll","🍿 Shared (1M)",200,0,None),
-                    ("cr_full1","crunchyroll","🍿 Full (1M)",450,0,None),
-                    ("cr_full12","crunchyroll","🍿 Full (12M)",1840,0,None),
-                    ("vpn_express","vpn_plus","🔑 ExpressVPN (1M)",350,0,"email_pass"),
-                    ("vpn_hma","vpn_plus","🔑 HMA VPN (1M)",250,0,"key_only"),
-                    ("vpn_vpnip","vpn_plus","🔑 VPN IP (1M)",300,0,"email_pass"),
-                    ("vpn_vanish","vpn_plus"," Vanish VPN (1M)",280,0,"email_pass"),
-                    ("vpn_proton","vpn_plus","🔑 Proton VPN (1M)",320,0,"email_pass"),
-                    ("proxy_dedicated","vpn_plus"," Dedicated Proxy IP (1M)",200,0,"key_only"),
-                    ("vps_basic","vpn_plus","🖥️ Basic VPS (1M)",800,0,"email_pass"),
-                    ("vps_premium","vpn_plus","️ Premium VPS (1M)",1500,0,"email_pass"),
-                    ("bal_100","topup","💰 100 Tk",100,0,None),
-                    ("bal_200","topup"," 200 Tk (+5 Bonus)",200,5,None),
-                    ("bal_500","topup","💰 500 Tk (+20 Bonus)",500,20,None),
-                    ("bal_1000","topup","💰 1000 Tk (+50 Bonus)",1000,50,None),
-                    ("bal_2000","topup","💰 2000 Tk (+120 Bonus)",2000,120,None),
-                    ("bal_5000","topup","💰 5000 Tk (+350 Bonus)",5000,350,None),
-                ]
-                for pid, catid, name, price, bonus, stype in prods:
-                    c.execute("""INSERT INTO products(id,category_id,name,price,bonus,stock_type) 
-                                 VALUES(?,?,?,?,?,?)""", (pid, catid, name, price, bonus, stype))
+            if count > 0:
+                return
+            # Only seed if completely empty
+            mains = [
+                ("freefire", None, "🔥 Free Fire BD", "Diamonds, Weekly, Lite, Likes"),
+                ("subscriptions", None, " Premium Subscriptions", "Netflix, YouTube, Crunchyroll"),
+                ("vpn_plus", None, " VPN Plus", "ExpressVPN, HMA, Proxy, VPS"),
+                ("topup", None, "💰 Wallet Top-Up", "Add balance instantly")
+            ]
+            for cid, pid, name, desc in mains:
+                c.execute("INSERT INTO categories(id,parent_id,name,description) VALUES(?,?,?,?)",
+                         (cid, pid, name, desc))
+            
+            subs = [
+                ("ff_diamonds", "freefire", "💎 Diamonds"),
+                ("ff_weekly", "freefire", "📆 Weekly"),
+                ("ff_lite", "freefire", "⭐ Weekly Lite"),
+                ("ff_like", "freefire", "❤️ Like Service"),
+                ("netflix", "subscriptions", " Netflix Premium"),
+                ("youtube", "subscriptions", "▶️ YouTube Premium"),
+                ("crunchyroll", "subscriptions", "🍿 Crunchyroll")
+            ]
+            for cid, pid, name in subs:
+                c.execute("INSERT INTO categories(id,parent_id,name) VALUES(?,?,?)", (cid, pid, name))
+            
+            prods = [
+                ("ff_25d","ff_diamonds","💎 25 Diamond",20,0,None,30),
+                ("ff_50d","ff_diamonds","💎 50 Diamond",35,0,None,30),
+                ("ff_115d","ff_diamonds","💎 115 Diamond",79,0,None,30),
+                ("ff_240d","ff_diamonds","💎 240 Diamond",156,0,None,30),
+                ("ff_355d","ff_diamonds","💎 355 Diamond",237,0,None,30),
+                ("ff_505d","ff_diamonds","💎 505 Diamond",336,0,None,30),
+                ("ff_610d","ff_diamonds","💎 610 Diamond",390,0,None,30),
+                ("ff_850d","ff_diamonds","💎 850 Diamond",558,0,None,30),
+                ("ff_1090d","ff_diamonds"," 1090 Diamond",716,0,None,30),
+                ("ff_1240d","ff_diamonds","💎 1240 Diamond",795,0,None,30),
+                ("ff_2530d","ff_diamonds","💎 2530 Diamond",1580,0,None,30),
+                ("ff_5060d","ff_diamonds","💎 5060 Diamond",3160,0,None,30),
+                ("ffw_1","ff_weekly","📆 1x Weekly",155,0,None,7),
+                ("ffw_2","ff_weekly","📆 2x Weekly",310,0,None,14),
+                ("ffw_3","ff_weekly"," 3x Weekly",465,0,None,21),
+                ("ffw_5","ff_weekly","📆 5x Weekly",775,0,None,35),
+                ("ffw_m","ff_weekly","📆 Monthly",765,0,None,30),
+                ("ffw_2m","ff_weekly","📆 2x Monthly",1540,0,None,60),
+                ("ffw_3m","ff_weekly"," 3x Monthly",2295,0,None,90),
+                ("ffw_5m","ff_weekly","📆 5x Monthly",3825,0,None,150),
+                ("ffl_1","ff_lite","⭐ 1x Weekly Lite",40,0,None,7),
+                ("ffl_2","ff_lite","⭐ 2x Weekly Lite",80,0,None,14),
+                ("ffl_3","ff_lite","⭐ 3x Weekly Lite",120,0,None,21),
+                ("ffl_5","ff_lite","⭐ 5x Weekly Lite",200,0,None,35),
+                ("fflk_200","ff_like","❤️ 200 Likes",20,0,None,30),
+                ("fflk_1000","ff_like","❤️ 1000 Likes",100,0,None,30),
+                ("fflk_2000","ff_like","❤️ 2000 Likes",200,0,None,30),
+                ("fflk_5000","ff_like","❤️ 5000 Likes",500,0,None,30),
+                ("nf_single","netflix","🎬 Single Profile (1M)",400,0,None,30),
+                ("nf_full","netflix","🎬 Full Account (1M)",1830,0,None,30),
+                ("yt_1m","youtube","▶️ 1 Month",100,0,None,30),
+                ("yt_3m","youtube","▶️ 3 Months",200,0,None,90),
+                ("yt_6m","youtube","▶️ 6 Months",300,0,None,180),
+                ("yt_1y","youtube","▶️ 1 Year",490,0,None,365),
+                ("cr_shared","crunchyroll","🍿 Shared (1M)",200,0,None,30),
+                ("cr_full1","crunchyroll","🍿 Full (1M)",450,0,None,30),
+                ("cr_full12","crunchyroll","🍿 Full (12M)",1840,0,None,365),
+                ("vpn_express","vpn_plus","🔑 ExpressVPN (1M)",350,0,"email_pass",30),
+                ("vpn_hma","vpn_plus","🔑 HMA VPN (1M)",250,0,"key_only",30),
+                ("vpn_vpnip","vpn_plus","🔑 VPN IP (1M)",300,0,"email_pass",30),
+                ("vpn_vanish","vpn_plus","🔑 Vanish VPN (1M)",280,0,"email_pass",30),
+                ("vpn_proton","vpn_plus","🔑 Proton VPN (1M)",320,0,"email_pass",30),
+                ("proxy_dedicated","vpn_plus","🌐 Dedicated Proxy IP (1M)",200,0,"key_only",30),
+                ("vps_basic","vpn_plus","️ Basic VPS (1M)",800,0,"email_pass",30),
+                ("vps_premium","vpn_plus","🖥️ Premium VPS (1M)",1500,0,"email_pass",30),
+                ("bal_100","topup","💰 100 Tk",100,0,None,0),
+                ("bal_200","topup","💰 200 Tk (+5 Bonus)",200,5,None,0),
+                ("bal_500","topup"," 500 Tk (+20 Bonus)",500,20,None,0),
+                ("bal_1000","topup","💰 1000 Tk (+50 Bonus)",1000,50,None,0),
+                ("bal_2000","topup"," 2000 Tk (+120 Bonus)",2000,120,None,0),
+                ("bal_5000","topup","💰 5000 Tk (+350 Bonus)",5000,350,None,0),
+            ]
+            for pid, catid, name, price, bonus, stype, exp in prods:
+                c.execute("""INSERT INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) 
+                             VALUES(?,?,?,?,?,?,?)""", (pid, catid, name, price, bonus, stype, exp))
     
+    # ─── USER ───
     def get_user(self, uid):
         with self._conn() as c:
             r = c.execute("SELECT * FROM users WHERE user_id=?", (uid,)).fetchone()
@@ -204,14 +206,15 @@ class DB:
             c.execute("INSERT INTO transactions(user_id,amount,type,method,trx_id,note) VALUES(?,?,?,?,?,?)",
                      (uid, amt, typ, method, trid, note))
     
+    # ─── CATEGORIES ───
     def get_main_categories(self):
         with self._conn() as c:
-            rows = c.execute("SELECT * FROM categories WHERE parent_id IS NULL AND is_active=1 ORDER BY sort_order").fetchall()
+            rows = c.execute("SELECT * FROM categories WHERE parent_id IS NULL AND is_active=1 ORDER BY sort_order, id").fetchall()
         return [dict(r) for r in rows]
     
     def get_subcategories(self, parent_id):
         with self._conn() as c:
-            rows = c.execute("SELECT * FROM categories WHERE parent_id=? AND is_active=1 ORDER BY sort_order", (parent_id,)).fetchall()
+            rows = c.execute("SELECT * FROM categories WHERE parent_id=? AND is_active=1 ORDER BY sort_order, id", (parent_id,)).fetchall()
         return [dict(r) for r in rows]
     
     def get_category(self, cid):
@@ -229,6 +232,14 @@ class DB:
             c.execute("UPDATE categories SET is_active=0 WHERE id=?", (cid,))
             c.execute("UPDATE products SET is_active=0 WHERE category_id=?", (cid,))
     
+    def update_category(self, cid, name=None, desc=None):
+        with self._conn() as c:
+            if name:
+                c.execute("UPDATE categories SET name=? WHERE id=?", (name, cid))
+            if desc is not None:
+                c.execute("UPDATE categories SET description=? WHERE id=?", (desc, cid))
+    
+    # ─── PRODUCTS ───
     def get_product(self, pid):
         with self._conn() as c:
             r = c.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
@@ -239,23 +250,40 @@ class DB:
             rows = c.execute("SELECT * FROM products WHERE category_id=? AND is_active=1 ORDER BY sort_order, price", (category_id,)).fetchall()
         return [dict(r) for r in rows]
     
-    def add_product(self, pid, category_id, name, price, bonus=0, stock_type=None):
+    def add_product(self, pid, category_id, name, price, bonus=0, stock_type=None, expiry_days=30):
         with self._conn() as c:
-            c.execute("""INSERT OR REPLACE INTO products(id,category_id,name,price,bonus,stock_type) 
-                         VALUES(?,?,?,?,?,?)""", (pid, category_id, name, price, bonus, stock_type))
+            c.execute("""INSERT OR REPLACE INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) 
+                         VALUES(?,?,?,?,?,?,?)""",
+                     (pid, category_id, name, price, bonus, stock_type, expiry_days))
     
-    def update_product_price(self, pid, new_price):
+    def update_product(self, pid, name=None, price=None, bonus=None, stock_type=None, expiry_days=None):
         with self._conn() as c:
-            c.execute("UPDATE products SET price=? WHERE id=?", (new_price, pid))
+            if name:
+                c.execute("UPDATE products SET name=? WHERE id=?", (name, pid))
+            if price is not None:
+                c.execute("UPDATE products SET price=? WHERE id=?", (price, pid))
+            if bonus is not None:
+                c.execute("UPDATE products SET bonus=? WHERE id=?", (bonus, pid))
+            if stock_type:
+                c.execute("UPDATE products SET stock_type=? WHERE id=?", (stock_type, pid))
+            if expiry_days is not None:
+                c.execute("UPDATE products SET expiry_days=? WHERE id=?", (expiry_days, pid))
     
     def delete_product(self, pid):
         with self._conn() as c:
             c.execute("UPDATE products SET is_active=0 WHERE id=?", (pid,))
     
+    def get_all_products(self):
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM products WHERE is_active=1 ORDER BY category_id, sort_order").fetchall()
+        return [dict(r) for r in rows]
+    
+    # ─── ORDERS ───
     def add_order(self, uid, pid, pname, catid, amt, uinput, pmethod, trid):
         with self._conn() as c:
             cur = c.execute("""INSERT INTO orders(user_id,product_id,product_name,category_id,amount,user_input,payment_method,transaction_id) 
-                              VALUES(?,?,?,?,?,?,?,?)""", (uid, pid, pname, catid, amt, uinput, pmethod, trid))
+                              VALUES(?,?,?,?,?,?,?,?)""",
+                           (uid, pid, pname, catid, amt, uinput, pmethod, trid))
             return cur.lastrowid
     
     def update_order(self, oid, status, photo="", note=""):
@@ -284,10 +312,12 @@ class DB:
         with self._conn() as c:
             return c.execute("SELECT COUNT(*) FROM orders WHERE status='pending'").fetchone()[0]
     
+    # ─── STOCK ───
     def add_stock(self, product_id, stock_type, email=None, password=None, key_data=None, expiry_days=30):
         with self._conn() as c:
             c.execute("""INSERT INTO stock(product_id,stock_type,email,password,key_data,expiry_days) 
-                         VALUES(?,?,?,?,?,?)""", (product_id, stock_type, email, password, key_data, expiry_days))
+                         VALUES(?,?,?,?,?,?)""",
+                     (product_id, stock_type, email, password, key_data, expiry_days))
     
     def get_available_stock(self, product_id):
         with self._conn() as c:
@@ -334,18 +364,26 @@ class Admin(StatesGroup):
     ban_uid = State()
     unban_uid = State()
     restore_db = State()
+    # Category
     addcat_parent = State()
     addcat_id = State()
     addcat_name = State()
     addcat_desc = State()
+    editcat_id = State()
+    editcat_name = State()
+    editcat_desc = State()
+    # Product
     addprod_cat = State()
     addprod_id = State()
     addprod_name = State()
     addprod_price = State()
     addprod_bonus = State()
+    addprod_expiry = State()
     addprod_stocktype = State()
     editprod_pid = State()
-    editprod_price = State()
+    editprod_field = State()
+    editprod_value = State()
+    # Stock
     stock_pid = State()
     stock_data = State()
     stock_days = State()
@@ -368,9 +406,9 @@ WELCOME = """
 │   🌟  SKY STORE BD  🌟      │
 │   ⚡ Premium Digital Store   │
 ─────────────────────────────┤
-│  🔥 Free Fire • 💎 Diamonds │
-│  🎬 Netflix • ▶️ YouTube     │
-│   🌐 VPN Plus • 💰 Top-Up   │
+│   Free Fire • 💎 Diamonds │
+│   Netflix • ▶️ YouTube     │
+│  🌐 VPN Plus • 💰 Top-Up    │
 ├─────────────────────────────┤
 │  📞 Support: @FBSKYSUPPORT  │
 │  ⚡ Instant • 🛡️ Trusted    │
@@ -379,6 +417,9 @@ WELCOME = """
 👇 Select a category to start!
 """
 
+# ═══════════════════════════════════════
+# KEYBOARDS
+# ═══════════════════════════════════════
 def main_menu(uid):
     kb = InlineKeyboardBuilder()
     for cat in db.get_main_categories():
@@ -400,7 +441,8 @@ def products_kb(cat_id):
         else:
             txt = f"{p['name']} — {fmt(p['price'])}"
         kb.row(InlineKeyboardButton(text=txt, callback_data=f"order_{p['id']}"))
-    kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data=f"addprod_{cat_id}"))
+    if cat_id in ADMIN_IDS or True:  # show add button for everyone, admin-only logic in handler
+        pass
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
     return kb.as_markup()
 
@@ -420,7 +462,7 @@ def admin_kb():
     kb.row(InlineKeyboardButton(text="📊 Dashboard", callback_data="admin_dash"))
     kb.row(
         InlineKeyboardButton(text="📦 All Orders", callback_data="admin_orders"),
-        InlineKeyboardButton(text="👥 Users", callback_data="admin_users")
+        InlineKeyboardButton(text=" Users", callback_data="admin_users")
     )
     kb.row(
         InlineKeyboardButton(text="💰 Add Balance", callback_data="admin_addbal"),
@@ -429,17 +471,17 @@ def admin_kb():
     kb.row(InlineKeyboardButton(text="📨 Broadcast", callback_data="admin_broadcast"))
     kb.row(
         InlineKeyboardButton(text="📂 Categories", callback_data="admin_cats"),
-        InlineKeyboardButton(text=" Products", callback_data="admin_prods")
+        InlineKeyboardButton(text="📦 Products", callback_data="admin_prods")
     )
     kb.row(
         InlineKeyboardButton(text="🔑 Stock Manage", callback_data="admin_stock"),
-        InlineKeyboardButton(text="✏️ Edit Price", callback_data="admin_editprice")
+        InlineKeyboardButton(text="✏️ Edit Product", callback_data="admin_editprod")
     )
     kb.row(
         InlineKeyboardButton(text="⛔ Ban", callback_data="admin_ban"),
         InlineKeyboardButton(text="✅ Unban", callback_data="admin_unban")
     )
-    kb.row(InlineKeyboardButton(text="💾 Restore DB", callback_data="admin_restore"))
+    kb.row(InlineKeyboardButton(text=" Restore DB", callback_data="admin_restore"))
     kb.row(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))
     return kb.as_markup()
 
@@ -470,7 +512,7 @@ def admin_prods_kb():
                 kb.row(InlineKeyboardButton(text=f"  └ {s['name']}", callback_data=f"adminprods_{s['id']}"))
         else:
             kb.row(InlineKeyboardButton(text=f"  └ {cat['name']}", callback_data=f"adminprods_{cat['id']}"))
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     return kb.as_markup()
 
 def admin_stock_kb():
@@ -478,9 +520,23 @@ def admin_stock_kb():
     kb.row(InlineKeyboardButton(text="📊 Stock Status", callback_data="stock_status"))
     kb.row(InlineKeyboardButton(text="➕ Add Stock", callback_data="stock_add"))
     kb.row(InlineKeyboardButton(text="🗑️ Delete Stock", callback_data="stock_del"))
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     return kb.as_markup()
 
+def edit_product_kb(pid):
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="✏️ Edit Name", callback_data=f"editprod_field_{pid}_name"))
+    kb.row(InlineKeyboardButton(text="💰 Edit Price", callback_data=f"editprod_field_{pid}_price"))
+    kb.row(InlineKeyboardButton(text="🎁 Edit Bonus", callback_data=f"editprod_field_{pid}_bonus"))
+    kb.row(InlineKeyboardButton(text="⏰ Edit Expiry Days", callback_data=f"editprod_field_{pid}_expiry"))
+    kb.row(InlineKeyboardButton(text=" Edit Stock Type", callback_data=f"editprod_field_{pid}_stocktype"))
+    kb.row(InlineKeyboardButton(text="🗑️ Delete Product", callback_data=f"delprod_{pid}"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_editprod"))
+    return kb.as_markup()
+
+# ═══════════════════════════════════════
+# USER COMMANDS
+# ═══════════════════════════════════════
 @dp.message(CommandStart())
 async def start(msg: Message):
     user = msg.from_user
@@ -507,26 +563,17 @@ async def view_category(call: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardBuilder()
         for s in subs:
             kb.row(InlineKeyboardButton(text=s["name"], callback_data=f"cat_{s['id']}"))
-        kb.row(InlineKeyboardButton(text="➕ Add Subcategory", callback_data=f"addcat_{cat_id}"))
         kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
         lines = [f"📂 {cat['name']}", "", "Select a subcategory:"]
         await call.message.edit_text(box("Category", lines), reply_markup=kb.as_markup())
     elif prods:
-        await call.message.edit_text(box("Products", [f"📦 {cat['name']}", "", f"Total: {len(prods)} products"]), 
-                                    reply_markup=products_kb(cat_id))
+        lines = [f"📦 {cat['name']}", f"Total: {len(prods)} products"]
+        await call.message.edit_text(box("Products", lines), reply_markup=products_kb(cat_id))
     else:
-        lines = [f"📂 {cat['name']}", "", "No subcategories or products yet.", "Add a subcategory or product!"]
-        await call.message.edit_text(box("Empty Category", lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Add Subcategory", callback_data=f"addcat_{cat_id}")],
-            [InlineKeyboardButton(text=" Back", callback_data="main_menu")]
+        lines = [f" {cat['name']}", "", "No products yet."]
+        await call.message.edit_text(box("Empty", lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Back", callback_data="main_menu")]
         ]))
-
-@dp.callback_query(lambda c: c.data.startswith("prods_"))
-async def view_products(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    cat_id = call.data[6:]
-    await state.update_data(view_cat=cat_id)
-    await call.message.edit_text(box("Products", [f"📦 Select a product"]), reply_markup=products_kb(cat_id))
 
 @dp.callback_query(lambda c: c.data.startswith("order_"))
 async def order_start(call: CallbackQuery, state: FSMContext):
@@ -541,23 +588,23 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         await state.update_data(user_input="Wallet TopUp")
         lines = [f"📦 {prod['name']}", f"💰 Price: {fmt(prod['price'])}"]
         if prod.get("bonus", 0) > 0:
-            lines.append(f" Bonus: +{fmt(prod['bonus'])}")
+            lines.append(f"🎁 Bonus: +{fmt(prod['bonus'])}")
         lines.extend(["", "Select payment method:"])
         await call.message.edit_text(box("Payment", lines), reply_markup=payment_kb())
         await state.set_state(Order.payment)
         return
     if cat_id == "vpn_plus":
-        lines = [f"📦 {prod['name']}", f"💰 Price: {fmt(prod['price'])}", "", "🌍 Enter server location", "(or type 'auto')"]
+        lines = [f"📦 {prod['name']}", f"💰 Price: {fmt(prod['price'])}", f"⏰ Valid: {prod.get('expiry_days', 30)} days", "", "🌍 Enter server location", "(or type 'auto')"]
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="⚡ Auto", callback_data="vpn_auto"))
-        kb.row(InlineKeyboardButton(text=" Back", callback_data=f"prods_{cat_id}"))
+        kb.row(InlineKeyboardButton(text=" Back", callback_data="main_menu"))
         await call.message.edit_text(box("VPN Config", lines), reply_markup=kb.as_markup())
         await state.set_state(Order.input)
         return
-    prompt = "🎮 Enter your Player ID:" if "ff_" in cat_id else "📧 Enter your Email:"
+    prompt = " Enter your Player ID:" if "ff_" in cat_id else "📧 Enter your Email:"
     lines = [f"📦 {prod['name']}", f"💰 Price: {fmt(prod['price'])}", "", prompt]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"prods_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
     await call.message.edit_text(box("Order Info", lines), reply_markup=kb.as_markup())
     await state.set_state(Order.input)
 
@@ -579,7 +626,7 @@ async def get_input(msg: Message, state: FSMContext):
     await state.update_data(user_input=text)
     data = await state.get_data()
     prod = data["order_prod"]
-    lines = [f" {prod['name']}", f"💰 Price: {fmt(prod['price'])}", "", "Select payment method:"]
+    lines = [f"📦 {prod['name']}", f"💰 Price: {fmt(prod['price'])}", "", "Select payment method:"]
     await msg.answer(box("Payment", lines), reply_markup=payment_kb())
     await state.set_state(Order.payment)
 
@@ -631,17 +678,17 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
         bal = db.get_balance(uid)
         lines = ["✅ Top-Up Successful!", "", f"Added: {fmt(total)}"]
         if bonus > 0:
-            lines.append(f"Bonus: +{fmt(bonus)}")
-        lines.append(f"Balance: {fmt(bal)}")
+            lines.append(f"🎁 Bonus: +{fmt(bonus)}")
+        lines.append(f"💳 Balance: {fmt(bal)}")
         await call_or_msg.message.edit_text(box("Success", lines), reply_markup=main_menu(uid))
     elif cat_id == "vpn_plus":
         stock = db.get_available_stock(prod["id"])
         if stock:
             db.update_order(oid, "delivered")
             if stock["stock_type"] == "key_only":
-                lines = ["✅ VPN Delivered!", "", f"🔑 Key: {stock['key_data']}", f"🌍 Server: {uinput or 'Auto'}", f" Expires: {stock['expiry_days']} days"]
+                lines = ["✅ VPN Delivered!", "", f" Key: {stock['key_data']}", f"🌍 Server: {uinput or 'Auto'}", f"⏰ Expires: {stock['expiry_days']} days"]
             else:
-                lines = ["✅ VPN Delivered!", "", f"📧 Email: {stock['email']}", f"🔐 Password: {stock['password']}", f" Server: {uinput or 'Auto'}", f"⏰ Expires: {stock['expiry_days']} days"]
+                lines = ["✅ VPN Delivered!", "", f" Email: {stock['email']}", f" Password: {stock['password']}", f"🌍 Server: {uinput or 'Auto'}", f"⏰ Expires: {stock['expiry_days']} days"]
             await call_or_msg.message.edit_text(box("Success", lines), reply_markup=main_menu(uid))
         else:
             db.update_order(oid, "pending")
@@ -653,7 +700,7 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
         await call_or_msg.message.edit_text(box("Success", lines), reply_markup=main_menu(uid))
     user = db.get_user(uid)
     order = db.get_order(oid)
-    admin_lines = [f"🆔 Order: #{oid}", f" User: {uid}", f"📛 Name: {user['first_name']}", f" Product: {prod['name']}", f"💰 Amount: {fmt(price)}", f"📝 Input: {uinput}", f" Payment: {pmethod}", f"🔢 TrxID: {trx}", f"⏰ {order['created_at']}"]
+    admin_lines = [f"🆔 Order: #{oid}", f"👤 User: {uid}", f"📛 Name: {user['first_name']}", f"📦 Product: {prod['name']}", f"💰 Amount: {fmt(price)}", f"📝 Input: {uinput}", f"💳 Payment: {pmethod}", f"🔢 TrxID: {trx}", f"⏰ {order['created_at']}"]
     kb = InlineKeyboardBuilder()
     kb.row(
         InlineKeyboardButton(text="✅ Approve", callback_data=f"approve_{oid}"),
@@ -661,7 +708,7 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
     )
     for aid in ADMIN_IDS:
         try:
-            await bot.send_message(aid, box("📦 NEW ORDER", admin_lines), reply_markup=kb.as_markup())
+            await bot.send_message(aid, box(" NEW ORDER", admin_lines), reply_markup=kb.as_markup())
         except:
             pass
     await state.clear()
@@ -699,7 +746,7 @@ async def wallet(call: CallbackQuery):
     await call.answer()
     uid = call.from_user.id
     bal = db.get_balance(uid)
-    lines = [f"💳 Balance: {fmt(bal)}"]
+    lines = [f" Balance: {fmt(bal)}"]
     await call.message.edit_text(box("Your Wallet", lines), reply_markup=main_menu(uid))
 
 @dp.callback_query(lambda c: c.data == "my_orders")
@@ -712,12 +759,15 @@ async def orders(call: CallbackQuery):
     else:
         lines = []
         for o in orders[:5]:
-            emoji = {"pending": "⏳", "delivered": "✅", "cancelled": ""}.get(o['status'], "⏳")
+            emoji = {"pending": "⏳", "delivered": "✅", "cancelled": "❌"}.get(o['status'], "⏳")
             lines.append(f"{emoji} #{o['id']} {o['product_name'][:25]}")
             lines.append(f"   {fmt(o['amount'])} - {o['status']}")
             lines.append("")
     await call.message.edit_text(box("Your Orders", lines), reply_markup=main_menu(uid))
 
+# ═══════════════════════════════════════
+# ADMIN PANEL
+# ═══════════════════════════════════════
 @dp.callback_query(lambda c: c.data == "admin_menu")
 async def admin_menu(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -732,7 +782,7 @@ async def dash(call: CallbackQuery):
     users = db.get_all_users()
     pending = db.pending_count()
     stock = db.get_stock_counts()
-    lines = [f"👥 Users: {len(users)}", f"⏳ Pending: {pending}", "", " Stock Status:"]
+    lines = [f"👥 Users: {len(users)}", f"⏳ Pending: {pending}", "", "🔑 Stock Status:"]
     if stock:
         for s in stock:
             lines.append(f"• {s['product_id']}: {s['cnt']}")
@@ -743,7 +793,7 @@ async def dash(call: CallbackQuery):
 @dp.callback_query(lambda c: c.data == "admin_orders")
 async def all_orders_menu(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text(box("Orders", ["📦 Select category"]), reply_markup=admin_orders_kb())
+    await call.message.edit_text(box("Orders", [" Select category"]), reply_markup=admin_orders_kb())
 
 @dp.callback_query(lambda c: c.data.startswith("orders_"))
 async def orders_by_status(call: CallbackQuery):
@@ -760,7 +810,7 @@ async def orders_by_status(call: CallbackQuery):
     else:
         lines = []
         for o in orders[:10]:
-            emoji = {"pending": "⏳", "delivered": "✅", "cancelled": "❌"}.get(o['status'], "⏳")
+            emoji = {"pending": "", "delivered": "✅", "cancelled": "❌"}.get(o['status'], "")
             lines.append(f"{emoji} #{o['id']} {o['product_name'][:20]}")
             lines.append(f"   {fmt(o['amount'])} by {o['user_id']}")
             lines.append("")
@@ -792,7 +842,7 @@ async def reject_order(call: CallbackQuery):
     lines = [f"❌ Order #{oid} Rejected!", f"Status: Cancelled"]
     await call.message.edit_text(box("Rejected", lines), reply_markup=admin_kb())
     try:
-        await bot.send_message(order["user_id"], box("Order Cancelled", [f"❌ Order #{oid}", f" {order['product_name']}"]))
+        await bot.send_message(order["user_id"], box("Order Cancelled", [f"❌ Order #{oid}", f"📦 {order['product_name']}"]))
     except:
         pass
 
@@ -845,7 +895,7 @@ async def addbal_amt(msg: Message, state: FSMContext):
         lines = ["✅ Balance Added!", "", f"Amount: {fmt(amt)}", f"New Balance: {fmt(new_bal)}", f"Time: {datetime.now():%H:%M}"]
         await msg.answer(box("Success", lines), reply_markup=admin_kb())
         try:
-            await bot.send_message(uid, box("Balance Added", [f"💰 Amount: {fmt(amt)}", f" New Balance: {fmt(new_bal)}", f"Added by: Admin"]))
+            await bot.send_message(uid, box("Balance Added", [f"💰 Amount: {fmt(amt)}", f"💳 New Balance: {fmt(new_bal)}", f"Added by: Admin"]))
         except:
             pass
     except:
@@ -855,7 +905,7 @@ async def addbal_amt(msg: Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "admin_deliver")
 async def deliver_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = ["📦 Send Order ID:"]
+    lines = [" Send Order ID:"]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     await call.message.edit_text(box("Deliver Order", lines), reply_markup=kb.as_markup())
@@ -921,6 +971,9 @@ async def broadcast_do(msg: Message, state: FSMContext):
     await msg.answer(box("Broadcast", lines), reply_markup=admin_kb())
     await state.clear()
 
+# ═══════════════════════════════════════
+# CATEGORY MANAGEMENT (FULL CRUD)
+# ═══════════════════════════════════════
 @dp.callback_query(lambda c: c.data == "admin_cats")
 async def admin_cats(call: CallbackQuery):
     await call.answer()
@@ -933,9 +986,12 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
     cat = db.get_category(cat_id)
     subs = db.get_subcategories(cat_id)
     prods = db.get_products(cat_id)
-    lines = [f"📂 {cat['name']}", f"Subcategories: {len(subs)}", f"Products: {len(prods)}"]
+    lines = [f"📂 {cat['name']}", f"ID: {cat_id}", f"Subcategories: {len(subs)}", f"Products: {len(prods)}"]
+    if cat.get("description"):
+        lines.append(f"Desc: {cat['description']}")
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="➕ Add Subcategory", callback_data=f"addcat_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="✏️ Edit Category", callback_data=f"editcat_{cat_id}"))
     kb.row(InlineKeyboardButton(text="📦 View Products", callback_data=f"adminprods_{cat_id}"))
     kb.row(InlineKeyboardButton(text="🗑️ Delete Category", callback_data=f"delcat_{cat_id}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_cats"))
@@ -948,7 +1004,7 @@ async def addcat_start(call: CallbackQuery, state: FSMContext):
     await state.update_data(addcat_parent=parent_id)
     lines = ["➕ Add New Category", "", "Send category ID (no spaces):", "Example: nord_vpn"]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_cats" if parent_id == "root" else f"admincat_{parent_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_cats" if parent_id == "root" else f"admincat_{parent_id}"))
     await call.message.edit_text(box("Add Category", lines), reply_markup=kb.as_markup())
     await state.set_state(Admin.addcat_id)
 
@@ -976,6 +1032,37 @@ async def addcat_desc(msg: Message, state: FSMContext):
     await msg.answer(box("Success", lines), reply_markup=admin_kb())
     await state.clear()
 
+@dp.callback_query(lambda c: c.data.startswith("editcat_"))
+async def editcat_start(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    cat_id = call.data[8:]
+    await state.update_data(editcat_id=cat_id)
+    lines = ["✏️ Edit Category", "", "Send new name:", "Type 'skip' to keep current"]
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"admincat_{cat_id}"))
+    await call.message.edit_text(box("Edit Category", lines), reply_markup=kb.as_markup())
+    await state.set_state(Admin.editcat_name)
+
+@dp.message(Admin.editcat_name)
+async def editcat_name(msg: Message, state: FSMContext):
+    if msg.text.strip().lower() != "skip":
+        data = await state.get_data()
+        db.update_category(data["editcat_id"], name=msg.text.strip())
+    lines = ["Send new description:", "Type 'skip' to keep current"]
+    await msg.answer(box("Edit Category", lines))
+    await state.set_state(Admin.editcat_desc)
+
+@dp.message(Admin.editcat_desc)
+async def editcat_desc(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    desc = msg.text.strip() if msg.text.strip().lower() != "skip" else None
+    if desc is not None:
+        db.update_category(data["editcat_id"], desc=desc)
+    cat = db.get_category(data["editcat_id"])
+    lines = ["✅ Category Updated!", "", f"Name: {cat['name']}"]
+    await msg.answer(box("Success", lines), reply_markup=admin_kb())
+    await state.clear()
+
 @dp.callback_query(lambda c: c.data.startswith("delcat_"))
 async def delcat(call: CallbackQuery):
     await call.answer("️ Deleting...")
@@ -984,10 +1071,13 @@ async def delcat(call: CallbackQuery):
     lines = [f"🗑️ Category deleted: {cid}"]
     await call.message.edit_text(box("Deleted", lines), reply_markup=admin_cats_kb())
 
+# ═══════════════════════════════════════
+# PRODUCT MANAGEMENT (FULL CRUD)
+# ═══════════════════════════════════════
 @dp.callback_query(lambda c: c.data == "admin_prods")
 async def admin_prods(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text(box("Products", ["📦 Select category"]), reply_markup=admin_prods_kb())
+    await call.message.edit_text(box("Products", [" Select category"]), reply_markup=admin_prods_kb())
 
 @dp.callback_query(lambda c: c.data.startswith("adminprods_"))
 async def admin_prods_view(call: CallbackQuery, state: FSMContext):
@@ -997,12 +1087,13 @@ async def admin_prods_view(call: CallbackQuery, state: FSMContext):
     prods = db.get_products(cat_id)
     lines = [f"📂 {cat['name']}", f"Products: {len(prods)}", ""]
     for p in prods[:10]:
-        lines.append(f"• {p['name']}: {fmt(p['price'])}")
+        exp = f" ({p.get('expiry_days', 30)}d)" if p.get('expiry_days') else ""
+        lines.append(f"• {p['name']}: {fmt(p['price'])}{exp}")
     if not prods:
         lines.append("No products yet.")
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data=f"addprod_{cat_id}"))
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_prods"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_prods"))
     await call.message.edit_text(box("Products", lines), reply_markup=kb.as_markup())
 
 @dp.callback_query(lambda c: c.data.startswith("addprod_"))
@@ -1020,7 +1111,7 @@ async def addprod_start(call: CallbackQuery, state: FSMContext):
 async def addprod_id(msg: Message, state: FSMContext):
     pid = msg.text.strip().lower().replace(" ", "_")
     await state.update_data(addprod_id=pid)
-    lines = ["Send product name:", "Example:  NordVPN (1M)"]
+    lines = ["Send product name:", "Example: 🔑 NordVPN (1M)"]
     await msg.answer(box("Add Product", lines))
     await state.set_state(Admin.addprod_name)
 
@@ -1047,19 +1138,32 @@ async def addprod_bonus(msg: Message, state: FSMContext):
     try:
         bonus = float(msg.text.strip())
         await state.update_data(addprod_bonus=bonus)
+        lines = ["Send expiry days (0 if none):", "Example: 30 or 0"]
+        await msg.answer(box("Add Product", lines))
+        await state.set_state(Admin.addprod_expiry)
+    except:
+        await msg.answer("❌ Invalid bonus")
+
+@dp.message(Admin.addprod_expiry)
+async def addprod_expiry(msg: Message, state: FSMContext):
+    try:
+        expiry = int(msg.text.strip())
+        await state.update_data(addprod_expiry=expiry)
         data = await state.get_data()
         cat_id = data["addprod_cat"]
+        # For VPN category, ask stock type
         if cat_id == "vpn_plus":
             lines = ["Select stock type:", "• email_pass = Email + Password", "• key_only = Key only (HMA style)", "", "Type: email_pass or key_only"]
             await msg.answer(box("Add Product", lines))
             await state.set_state(Admin.addprod_stocktype)
         else:
-            db.add_product(data["addprod_id"], cat_id, data["addprod_name"], data["addprod_price"], bonus)
-            lines = ["✅ Product Added!", "", f"ID: {data['addprod_id']}", f"Name: {data['addprod_name']}", f"Price: {fmt(data['addprod_price'])}", f"Bonus: {fmt(bonus)}"]
+            db.add_product(data["addprod_id"], cat_id, data["addprod_name"], 
+                          data["addprod_price"], data["addprod_bonus"], None, expiry)
+            lines = ["✅ Product Added!", "", f"ID: {data['addprod_id']}", f"Name: {data['addprod_name']}", f"Price: {fmt(data['addprod_price'])}", f"Bonus: {fmt(data['addprod_bonus'])}", f"Expiry: {expiry} days"]
             await msg.answer(box("Success", lines), reply_markup=admin_kb())
             await state.clear()
     except:
-        await msg.answer("❌ Invalid bonus")
+        await msg.answer("❌ Invalid expiry days")
 
 @dp.message(Admin.addprod_stocktype)
 async def addprod_stocktype(msg: Message, state: FSMContext):
@@ -1068,43 +1172,118 @@ async def addprod_stocktype(msg: Message, state: FSMContext):
         return await msg.answer("❌ Type 'email_pass' or 'key_only'")
     data = await state.get_data()
     db.add_product(data["addprod_id"], data["addprod_cat"], data["addprod_name"], 
-                   data["addprod_price"], data["addprod_bonus"], stype)
-    lines = ["✅ Product Added!", "", f"ID: {data['addprod_id']}", f"Name: {data['addprod_name']}", f"Price: {fmt(data['addprod_price'])}", f"Stock Type: {stype}"]
+                   data["addprod_price"], data["addprod_bonus"], stype, data["addprod_expiry"])
+    lines = ["✅ Product Added!", "", f"ID: {data['addprod_id']}", f"Name: {data['addprod_name']}", f"Price: {fmt(data['addprod_price'])}", f"Stock Type: {stype}", f"Expiry: {data['addprod_expiry']} days"]
     await msg.answer(box("Success", lines), reply_markup=admin_kb())
     await state.clear()
 
-@dp.callback_query(lambda c: c.data == "admin_editprice")
-async def editprice_start(call: CallbackQuery, state: FSMContext):
+# ═══════════════════════════════════════
+# EDIT PRODUCT (FIELD BY FIELD)
+# ═══════════════════════════════════════
+@dp.callback_query(lambda c: c.data == "admin_editprod")
+async def editprod_list(call: CallbackQuery):
     await call.answer()
-    lines = ["✏️ Send Product ID to edit price:"]
+    prods = db.get_all_products()
+    if not prods:
+        lines = ["No products to edit."]
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
+        return await call.message.edit_text(box("Edit Product", lines), reply_markup=kb.as_markup())
+    
     kb = InlineKeyboardBuilder()
+    for p in prods[:20]:
+        kb.row(InlineKeyboardButton(text=f"✏️ {p['name'][:25]} - {fmt(p['price'])}", callback_data=f"editprod_{p['id']}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
-    await call.message.edit_text(box("Edit Price", lines), reply_markup=kb.as_markup())
-    await state.set_state(Admin.editprod_pid)
+    lines = ["Select product to edit:"]
+    await call.message.edit_text(box("Edit Product", lines), reply_markup=kb.as_markup())
 
-@dp.message(Admin.editprod_pid)
-async def editprod_pid(msg: Message, state: FSMContext):
-    pid = msg.text.strip()
+@dp.callback_query(lambda c: c.data.startswith("editprod_") and not c.data.startswith("editprod_field_") and not c.data.startswith("editprod_del_"))
+async def editprod_select(call: CallbackQuery):
+    await call.answer()
+    pid = call.data[9:]
     prod = db.get_product(pid)
     if not prod:
-        return await msg.answer("❌ Product not found")
-    await state.update_data(edit_pid=pid)
-    lines = [f"📦 {prod['name']}", f"💰 Current: {fmt(prod['price'])}", "", "Send new price:"]
-    await msg.answer(box("Edit Price", lines))
-    await state.set_state(Admin.editprod_price)
+        return
+    lines = [
+        f"📦 {prod['name']}",
+        f"ID: {pid}",
+        f"💰 Price: {fmt(prod['price'])}",
+        f"🎁 Bonus: {fmt(prod.get('bonus', 0))}",
+        f" Expiry: {prod.get('expiry_days', 30)} days",
+        f"🔄 Stock: {prod.get('stock_type', 'N/A')}",
+    ]
+    await call.message.edit_text(box("Edit Product", lines), reply_markup=edit_product_kb(pid))
 
-@dp.message(Admin.editprod_price)
-async def editprod_price(msg: Message, state: FSMContext):
+@dp.callback_query(lambda c: c.data.startswith("editprod_field_"))
+async def editprod_field(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    parts = call.data.split("_")
+    # editprod_field_{pid}_{field}
+    pid = parts[3]
+    field = parts[4]
+    await state.update_data(editprod_pid=pid, editprod_field=field)
+    
+    field_names = {
+        "name": "name",
+        "price": "price (numbers)",
+        "bonus": "bonus (numbers)",
+        "expiry": "expiry days (numbers)",
+        "stocktype": "stock type (email_pass or key_only)"
+    }
+    lines = [f"✏️ Edit {field_names.get(field, field)}", "", f"Product: {pid}", "", "Send new value:"]
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"editprod_{pid}"))
+    await call.message.edit_text(box("Edit Field", lines), reply_markup=kb.as_markup())
+    await state.set_state(Admin.editprod_value)
+
+@dp.message(Admin.editprod_value)
+async def editprod_value(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    pid = data["editprod_pid"]
+    field = data["editprod_field"]
+    value = msg.text.strip()
+    
     try:
-        new_price = float(msg.text.strip())
-        data = await state.get_data()
-        db.update_product_price(data["edit_pid"], new_price)
-        lines = ["✅ Price Updated!", "", f"Product: {data['edit_pid']}", f"New Price: {fmt(new_price)}"]
-        await msg.answer(box("Success", lines), reply_markup=admin_kb())
-    except:
-        await msg.answer("❌ Invalid price")
+        if field == "name":
+            db.update_product(pid, name=value)
+        elif field == "price":
+            db.update_product(pid, price=float(value))
+        elif field == "bonus":
+            db.update_product(pid, bonus=float(value))
+        elif field == "expiry":
+            db.update_product(pid, expiry_days=int(value))
+        elif field == "stocktype":
+            if value not in ["email_pass", "key_only"]:
+                return await msg.answer("❌ Must be 'email_pass' or 'key_only'")
+            db.update_product(pid, stock_type=value)
+        
+        # Show updated product
+        prod = db.get_product(pid)
+        lines = [
+            "✅ Product Updated!",
+            "",
+            f"📦 {prod['name']}",
+            f"💰 Price: {fmt(prod['price'])}",
+            f"🎁 Bonus: {fmt(prod.get('bonus', 0))}",
+            f" Expiry: {prod.get('expiry_days', 30)} days",
+            f" Stock: {prod.get('stock_type', 'N/A')}",
+        ]
+        await msg.answer(box("Success", lines), reply_markup=edit_product_kb(pid))
+    except Exception as e:
+        await msg.answer(f"❌ Error: {e}")
     await state.clear()
 
+@dp.callback_query(lambda c: c.data.startswith("delprod_"))
+async def delprod(call: CallbackQuery):
+    await call.answer("🗑️ Deleting...")
+    pid = call.data[8:]
+    db.delete_product(pid)
+    lines = [f"️ Product deleted: {pid}"]
+    await call.message.edit_text(box("Deleted", lines), reply_markup=admin_kb())
+
+# ═══════════════════════════════════════
+# STOCK MANAGEMENT
+# ═══════════════════════════════════════
 @dp.callback_query(lambda c: c.data == "admin_stock")
 async def admin_stock(call: CallbackQuery):
     await call.answer()
@@ -1128,7 +1307,7 @@ async def stock_status(call: CallbackQuery):
 @dp.callback_query(lambda c: c.data == "stock_add")
 async def stock_add_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = [" Add Stock", "", "Send Product ID:"]
+    lines = ["➕ Add Stock", "", "Send Product ID:"]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
     await call.message.edit_text(box("Add Stock", lines), reply_markup=kb.as_markup())
@@ -1142,7 +1321,7 @@ async def stock_pid(msg: Message, state: FSMContext):
         return await msg.answer("❌ Product not found")
     await state.update_data(stock_pid=pid, stock_type=prod.get("stock_type", "key_only"))
     if prod.get("stock_type") == "key_only":
-        lines = [f"📦 {prod['name']}", f"Type: Key Only", "", "Send keys (one per line)", "Or send a .txt file"]
+        lines = [f" {prod['name']}", f"Type: Key Only", "", "Send keys (one per line)", "Or send a .txt file"]
     else:
         lines = [f"📦 {prod['name']}", f"Type: Email + Password", "", "Send in format:", "email:password", "or email|password", "One per line or .txt file"]
     await msg.answer(box("Add Stock", lines))
@@ -1223,29 +1402,32 @@ async def stock_del(call: CallbackQuery):
         return await call.message.edit_text(box("Delete Stock", lines), reply_markup=kb.as_markup())
     kb = InlineKeyboardBuilder()
     for s in stock[:15]:
-        status = "✅" if s['is_used'] else ""
+        status = "✅" if s['is_used'] else "📦"
         display = s['key_data'] or s['email'] or "N/A"
         kb.row(InlineKeyboardButton(
             text=f"{status} #{s['id']} {display[:25]}...",
             callback_data=f"delstock_{s['id']}"
         ))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
-    lines = ["🗑️ Select stock to delete:"]
+    lines = ["️ Select stock to delete:"]
     await call.message.edit_text(box("Delete Stock", lines), reply_markup=kb.as_markup())
 
 @dp.callback_query(lambda c: c.data.startswith("delstock_"))
 async def del_stock(call: CallbackQuery):
-    await call.answer("️ Deleting...")
+    await call.answer("🗑️ Deleting...")
     sid = int(call.data.split("_")[1])
     db.delete_stock(sid)
     await stock_del(call)
 
+# ═══════════════════════════════════════
+# BAN/UNBAN/RESTORE
+# ═══════════════════════════════════════
 @dp.callback_query(lambda c: c.data == "admin_ban")
 async def ban_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     lines = ["⛔ Send User ID to ban:"]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
     await call.message.edit_text(box("Ban User", lines), reply_markup=kb.as_markup())
     await state.set_state(Admin.ban_uid)
 
@@ -1254,7 +1436,7 @@ async def ban_do(msg: Message, state: FSMContext):
     try:
         uid = int(msg.text)
         db.set_ban(uid, True)
-        lines = [f"⛔ User {uid} banned!"]
+        lines = [f" User {uid} banned!"]
         await msg.answer(box("Banned", lines), reply_markup=admin_kb())
         try:
             await bot.send_message(uid, box("Banned", ["❌ You have been banned."]))
@@ -1285,7 +1467,7 @@ async def unban_do(msg: Message, state: FSMContext):
         except:
             pass
     except:
-        await msg.answer("❌ Invalid User ID")
+        await msg.answer(" Invalid User ID")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "admin_restore")
