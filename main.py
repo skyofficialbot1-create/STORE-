@@ -290,17 +290,20 @@ def admin_stock_kb():
     kb.row(InlineKeyboardButton(text="🔙 Admin Panel", callback_data="admin_menu"))
     return kb.as_markup()
 
-# ─── WELCOME MESSAGE ───
-WELCOME = f"""🌟 **Welcome to SKY STORE BD!**  
-⚡ Instant delivery | Best price in Bangladesh  
-━━━━━━━━━━━━━━━━━━━━━  
-🔥 Free Fire | 📆 Weekly/Monthly | ⭐ Lite | ❤️ Likes  
-🎬 Netflix | ▶️ YouTube | 🍿 Crunchyroll  
-🌐 VPN Plus (ExpressVPN, HMA, Proxy, VPS)  
-💰 Wallet Top-Up  
-━━━━━━━━━━━━━━━━━━━━━  
-📞 Support: @{SUPPORT_USERNAME}  
-👇 Select a category to start!"""
+# ─── WELCOME MESSAGE (NEW BEAUTIFUL DESIGN) ───
+WELCOME = f"""🌟 *Welcome to SKY STORE BD!* 🌟
+
+🛍️ *Your Ultimate Digital Store*
+━━━━━━━━━━━━━━━━━━━━━
+🎮 *Game Top-Ups:* Free Fire, Weekly/Monthly
+🎬 *Subscriptions:* Netflix, YouTube Premium
+🌐 *VPN & Proxy:* ExpressVPN, HMA, VPS
+💰 *Wallet:* Add balance for instant purchases
+━━━━━━━━━━━━━━━━━━━━━
+⚡ _Instant delivery | Best price in BD_
+📞 Support: @{SUPPORT_USERNAME}
+
+👇 *Select a category below to start:*"""
 
 # ─── COMMANDS ───
 @dp.message(CommandStart())
@@ -312,26 +315,26 @@ async def start(msg: Message):
 @dp.callback_query(lambda c: c.data == "main_menu")
 async def go_main(call: CallbackQuery, state: FSMContext):
     await state.clear()
-    await call.message.edit_text("📂 Main Menu", reply_markup=main_menu(call.from_user.id))
+    await call.message.edit_text(WELCOME, reply_markup=main_menu(call.from_user.id), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "show_main")
 async def show_main_cats(call: CallbackQuery, state: FSMContext):
     await state.clear()
-    await call.message.edit_text("📂 **Select Category:**", reply_markup=main_menu(call.from_user.id), parse_mode="Markdown")
+    await call.message.edit_text(WELCOME, reply_markup=main_menu(call.from_user.id), parse_mode="Markdown")
 
 # Main category -> subcategory or products
 @dp.callback_query(lambda c: c.data.startswith("main_"))
 async def main_cat(call: CallbackQuery, state: FSMContext):
     main_id = call.data.split("_")[1]
     await state.update_data(main_cat=main_id)
-    await call.message.edit_text(f"📂 **Select subcategory:**", reply_markup=subcategory_kb(main_id), parse_mode="Markdown")
+    await call.message.edit_text(f"📂 *Select subcategory:*", reply_markup=subcategory_kb(main_id), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("sub_"))
 async def sub_cat(call: CallbackQuery, state: FSMContext):
     _, rest = call.data.split("_",1)
     main, sub = rest.split("|")
     await state.update_data(subcat_id=sub)
-    await call.message.edit_text(f"📦 **Select product:**", reply_markup=products_kb(sub), parse_mode="Markdown")
+    await call.message.edit_text(f"📦 *Select product:*", reply_markup=products_kb(sub), parse_mode="Markdown")
 
 # Product order start
 @dp.callback_query(lambda c: c.data.startswith("order_"))
@@ -349,11 +352,11 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         await state.set_state(Order.input)
     elif sub == "topup":
         await state.update_data(user_input="Wallet TopUp")
-        await call.message.edit_text(f"💳 **Payment**\nProduct: {prod['name']}\nPrice: {fmt(prod['price'])}", reply_markup=payment_kb(), parse_mode="Markdown")
+        await call.message.edit_text(f"💳 *Payment*\nProduct: {prod['name']}\nPrice: {fmt(prod['price'])}", reply_markup=payment_kb(), parse_mode="Markdown")
         await state.set_state(Order.payment)
     else:
-        prompt = "🎮 Enter your Player ID:" if "ff_" in sub else "📧 Enter your Email:"
-        await call.message.edit_text(prompt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        prompt = "🎮 Enter your Player ID:" if "ff_" in sub else "📧 Enter your Email/Info:"
+        await call.message.edit_text(f"📝 {prompt}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Back", callback_data="back_to_products")]
         ]))
         await state.set_state(Order.input)
@@ -362,7 +365,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
 async def vpn_auto(call: CallbackQuery, state: FSMContext):
     await state.update_data(user_input="Auto")
     data = await state.get_data()
-    await call.message.edit_text(f"💳 **Payment**\nProduct: {data['prod']['name']}\nServer: Auto\nPrice: {fmt(data['prod']['price'])}", reply_markup=payment_kb(), parse_mode="Markdown")
+    await call.message.edit_text(f"💳 *Payment*\nProduct: {data['prod']['name']}\nServer: Auto\nPrice: {fmt(data['prod']['price'])}", reply_markup=payment_kb(), parse_mode="Markdown")
     await state.set_state(Order.payment)
 
 @dp.message(Order.input)
@@ -371,7 +374,7 @@ async def get_input(msg: Message, state: FSMContext):
     if len(text)<2: return await msg.answer("❌ Please enter valid details")
     await state.update_data(user_input=text)
     data = await state.get_data()
-    await msg.answer(f"💳 **Payment**\nProduct: {data['prod']['name']}\nPrice: {fmt(data['prod']['price'])}", reply_markup=payment_kb(), parse_mode="Markdown")
+    await msg.answer(f"💳 *Payment*\nProduct: {data['prod']['name']}\nPrice: {fmt(data['prod']['price'])}", reply_markup=payment_kb(), parse_mode="Markdown")
     await state.set_state(Order.payment)
 
 # Payment selection
@@ -397,6 +400,34 @@ async def pay_select(call: CallbackQuery, state: FSMContext):
                                      reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back", callback_data="back_to_payment")]]))
         await state.set_state(Order.trxid)
 
+async def notify_admin_order(uid, oid, prod, sub, price, pmethod, trx, uinput):
+    user_info = db.get_user(uid)
+    username_txt = f"@{user_info['username']}" if user_info and user_info.get('username') else str(uid)
+    first_name = user_info['first_name'] if user_info else "Unknown"
+    
+    # Beautiful Box Format for Admin
+    order_details = f"""📦 *NEW ORDER RECEIVED* 📦
+━━━━━━━━━━━━━━━━━━━━━
+👤 *Ordered By:* {first_name} ({username_txt})
+🆔 *User ID:* `{uid}`
+🛒 *Order ID:* `#{oid}`
+🛍️ *Product:* {prod['name']}
+🏷️ *Category:* {sub}
+💵 *Price:* {fmt(price)}
+💳 *Payment Method:* {pmethod}
+🧾 *TrxID:* `{trx}`
+📝 *User Input:* `{uinput}`
+🕒 *Time:* {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+━━━━━━━━━━━━━━━━━━━━━"""
+
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Deliver / Approve", callback_data=f"admin_fast_deliver_{oid}")]
+    ])
+    
+    for aid in ADMIN_IDS:
+        try: await bot.send_message(aid, order_details, parse_mode="Markdown", reply_markup=admin_kb)
+        except: pass
+
 async def process_payment(call: CallbackQuery, state: FSMContext, pmethod, trx):
     data = await state.get_data()
     prod = data["prod"]
@@ -407,6 +438,7 @@ async def process_payment(call: CallbackQuery, state: FSMContext, pmethod, trx):
     if pmethod == "Wallet Balance":
         if not db.deduct_balance(uid, price): return
     oid = db.add_order(uid, prod["name"], sub, price, uinput, pmethod, trx)
+    
     # Auto-delivery logic
     if sub == "topup":
         bonus = prod.get("bonus",0)
@@ -427,11 +459,10 @@ async def process_payment(call: CallbackQuery, state: FSMContext, pmethod, trx):
         await call.message.edit_text(f"✅ VPN Key: `{key}`\nServer: {uinput}\nExpires: {days} days", reply_markup=main_menu(uid), parse_mode="Markdown")
     else:
         db.update_order(oid, "delivered")
-        await call.message.edit_text(f"✅ Order #{oid} placed! Pending verification.", reply_markup=main_menu(uid), parse_mode="Markdown")
-    # Notify admin
-    for aid in ADMIN_IDS:
-        try: await bot.send_message(aid, f"📦 New Order #{oid}: {prod['name']} by {uid}")
-        except: pass
+        await call.message.edit_text(f"✅ Order `#{oid}` placed! Pending verification.", reply_markup=main_menu(uid), parse_mode="Markdown")
+    
+    # Notify admin with beautiful format
+    await notify_admin_order(uid, oid, prod, sub, price, pmethod, trx, uinput)
     await state.clear()
 
 @dp.message(Order.trxid)
@@ -441,10 +472,9 @@ async def get_trx(msg: Message, state: FSMContext):
     data = await state.get_data()
     method = data.get("pay_method","Manual")
     mn = {"bkash":"bKash","nagad":"Nagad","rocket":"Rocket","upi":"UPI"}.get(method, method)
-    await process_payment(msg, state, mn, trx)
+    await process_payment_msg(msg, state, mn, trx)
 
 async def process_payment_msg(msg: Message, state: FSMContext, pmethod, trx):
-    # same as above but using msg.answer
     data = await state.get_data()
     prod = data["prod"]
     sub = data["subcat_id"]
@@ -471,10 +501,10 @@ async def process_payment_msg(msg: Message, state: FSMContext, pmethod, trx):
         await msg.answer(f"✅ VPN Key: `{key}`\nServer: {uinput}", reply_markup=main_menu(uid), parse_mode="Markdown")
     else:
         db.update_order(oid, "delivered")
-        await msg.answer(f"✅ Order #{oid} placed! Pending verification.", reply_markup=main_menu(uid), parse_mode="Markdown")
-    for aid in ADMIN_IDS:
-        try: await bot.send_message(aid, f"📦 New Order #{oid} by {uid}")
-        except: pass
+        await msg.answer(f"✅ Order `#{oid}` placed! Pending verification.", reply_markup=main_menu(uid), parse_mode="Markdown")
+    
+    # Notify admin with beautiful format
+    await notify_admin_order(uid, oid, prod, sub, price, pmethod, trx, uinput)
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "back_to_payment")
@@ -488,7 +518,7 @@ async def back_prod(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     sub = data.get("subcat_id")
     if sub:
-        await call.message.edit_text("📦 Select product:", reply_markup=products_kb(sub))
+        await call.message.edit_text("📦 *Select product:*", reply_markup=products_kb(sub), parse_mode="Markdown")
         await state.set_state(None)
 
 # User info
@@ -496,13 +526,18 @@ async def back_prod(call: CallbackQuery, state: FSMContext):
 async def wallet(call: CallbackQuery):
     uid = call.from_user.id
     bal = db.get_balance(uid)
-    await call.message.edit_text(f"💰 Balance: {fmt(bal)}", reply_markup=main_menu(uid), parse_mode="Markdown")
+    await call.message.edit_text(f"💰 *Your Wallet Balance:*\n\n💵 Amount: {fmt(bal)}", reply_markup=main_menu(uid), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "my_orders")
 async def orders(call: CallbackQuery):
     uid = call.from_user.id
     orders = db.get_user_orders(uid, 5)
-    txt = "📦 **Your Orders:**\n" + "\n".join(f"#{o['id']} {o['product_name']} - {o['status']}" for o in orders) if orders else "No orders yet."
+    if not orders:
+        txt = "❌ You have no previous orders."
+    else:
+        txt = "📦 *Your Recent Orders:*\n━━━━━━━━━━━━━━━━━━━━━\n"
+        for o in orders:
+            txt += f"🛒 *ID:* `#{o['id']}`\n🛍️ *Item:* {o['product_name']}\n📊 *Status:* {o['status'].upper()}\n━━━━━━━━━━━━━━━━━━━━━\n"
     await call.message.edit_text(txt, reply_markup=main_menu(uid), parse_mode="Markdown")
 
 # ─── ADMIN PANEL ───
@@ -510,33 +545,53 @@ async def orders(call: CallbackQuery):
 async def admin_menu(call: CallbackQuery, state: FSMContext):
     if call.from_user.id not in ADMIN_IDS: return await call.answer("Unauthorized")
     await state.clear()
-    await call.message.edit_text("🔐 Admin Panel", reply_markup=admin_kb())
+    await call.message.edit_text("🔐 *Admin Panel Dashboard*", reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "admin_dash")
 async def dash(call: CallbackQuery):
     users = db.get_all_users()
     pending = db.pending_count()
     stock = db.get_stock_counts()
-    s = "\n".join(f"{c['category']}: {c['cnt']}" for c in stock) or "No stock"
-    await call.message.edit_text(f"👥 Users: {len(users)}\n📦 Pending: {pending}\n🔑 Stock:\n{s}", reply_markup=admin_kb())
+    s = "\n".join(f"🔸 {c['category']}: {c['cnt']}" for c in stock) or "No stock available"
+    
+    txt = f"""📊 *SYSTEM DASHBOARD*
+━━━━━━━━━━━━━━━━━━━━━
+👥 *Total Users:* {len(users)}
+📦 *Pending Orders:* {pending}
+
+🔑 *Stock Status:*
+{s}
+━━━━━━━━━━━━━━━━━━━━━"""
+    await call.message.edit_text(txt, reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "admin_orders")
 async def pending_orders(call: CallbackQuery):
-    orders = db.get_all_orders("pending", 20)
-    if not orders: return await call.message.edit_text("No pending orders", reply_markup=admin_kb())
-    txt = "\n".join(f"#{o['id']} {o['product_name']} by {o['user_id']}" for o in orders)
-    await call.message.edit_text(f"📦 Pending Orders:\n{txt}", reply_markup=admin_kb())
+    orders = db.get_all_orders("pending", 15)
+    if not orders: return await call.message.edit_text("✅ *No pending orders right now!*", reply_markup=admin_kb(), parse_mode="Markdown")
+    
+    txt = "📦 *PENDING ORDERS LIST*\n━━━━━━━━━━━━━━━━━━━━━\n"
+    for o in orders:
+        txt += f"🛒 *Order ID:* `#{o['id']}` | 🛍️ {o['product_name']}\n👤 *User:* `{o['user_id']}` | 💵 {fmt(o['amount'])}\n📝 *Input:* `{o['user_input']}`\n━━━━━━━━━━━━━━━━━━━━━\n"
+    
+    await call.message.edit_text(txt, reply_markup=admin_kb(), parse_mode="Markdown")
 
-@dp.callback_query(lambda c: c.data == "admin_users")
-async def users_list(call: CallbackQuery):
-    users = db.get_all_users()
-    txt = "\n".join(f"{'🔒' if u['is_banned'] else '👤'} {u['user_id']} {u['first_name']} ৳{u['balance']}" for u in users[:30])
-    await call.message.edit_text(f"👥 Users:\n{txt}", reply_markup=admin_kb())
+# Admin Fast Deliver (From Inline Button)
+@dp.callback_query(lambda c: c.data.startswith("admin_fast_deliver_"))
+async def fast_deliver(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS: return await call.answer("Unauthorized")
+    oid = int(call.data.split("_")[-1])
+    order = db.get_order(oid)
+    if not order: return await call.answer("Order not found or already processed!")
+    
+    await state.update_data(oid=oid)
+    await call.message.answer(f"📦 *Delivering Order `#{oid}`*\nProduct: {order['product_name']}\n\n📸 Send a screenshot/photo of delivery, OR type 'done' to deliver without photo:", parse_mode="Markdown")
+    await state.set_state(Admin.deliver_file)
+    await call.answer()
 
 # Add Balance
 @dp.callback_query(lambda c: c.data == "admin_addbal")
 async def addbal_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send User ID:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]))
+    await call.message.edit_text("👤 *Send User ID to add balance:*", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]), parse_mode="Markdown")
     await state.set_state(Admin.addbal_uid)
 
 @dp.message(Admin.addbal_uid)
@@ -544,9 +599,9 @@ async def addbal_uid(msg: Message, state: FSMContext):
     try:
         uid = int(msg.text)
         await state.update_data(uid=uid)
-        await msg.answer("Send amount:")
+        await msg.answer("💵 *Send amount to add:*", parse_mode="Markdown")
         await state.set_state(Admin.addbal_amt)
-    except: await msg.answer("Invalid ID")
+    except: await msg.answer("❌ Invalid ID format")
 
 @dp.message(Admin.addbal_amt)
 async def addbal_amt(msg: Message, state: FSMContext, bot: Bot):
@@ -556,16 +611,20 @@ async def addbal_amt(msg: Message, state: FSMContext, bot: Bot):
         uid = data["uid"]
         db.update_balance(uid, amt)
         db.add_transaction(uid, amt, "admin_add", "Admin", f"ADMIN_{datetime.now():%Y%m%d%H%M%S}")
-        await msg.answer(f"✅ Added {fmt(amt)} to {uid}", reply_markup=admin_kb())
-        try: await bot.send_message(uid, f"💰 Added {fmt(amt)} to your wallet!")
+        await msg.answer(f"✅ Successfully added *{fmt(amt)}* to user `{uid}`", reply_markup=admin_kb(), parse_mode="Markdown")
+        
+        # Beautiful notification for user
+        try: 
+            user_msg = f"🎉 *Congratulations!*\n\n💰 An Admin has added *{fmt(amt)}* to your wallet.\n🥳 Happy Shopping!"
+            await bot.send_message(uid, user_msg, parse_mode="Markdown")
         except: pass
-    except: await msg.answer("Invalid amount")
+    except: await msg.answer("❌ Invalid amount format")
     await state.clear()
 
-# Deliver Order
+# Deliver Order (Manual ID entry)
 @dp.callback_query(lambda c: c.data == "admin_deliver")
 async def deliver_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send Order ID:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]))
+    await call.message.edit_text("📦 *Send Order ID to deliver:*", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]), parse_mode="Markdown")
     await state.set_state(Admin.deliver_oid)
 
 @dp.message(Admin.deliver_oid)
@@ -573,11 +632,11 @@ async def deliver_oid(msg: Message, state: FSMContext):
     try:
         oid = int(msg.text)
         order = db.get_order(oid)
-        if not order: return await msg.answer("Not found")
+        if not order: return await msg.answer("❌ Order not found")
         await state.update_data(oid=oid)
-        await msg.answer(f"Order #{oid}: {order['product_name']}\nSend photo or type 'done':")
+        await msg.answer(f"📦 *Order `#{oid}`:* {order['product_name']}\n\n📸 Send delivery photo or type 'done':", parse_mode="Markdown")
         await state.set_state(Admin.deliver_file)
-    except: await msg.answer("Invalid ID")
+    except: await msg.answer("❌ Invalid ID format")
 
 @dp.message(Admin.deliver_file)
 async def deliver_file(msg: Message, state: FSMContext, bot: Bot):
@@ -585,23 +644,23 @@ async def deliver_file(msg: Message, state: FSMContext, bot: Bot):
     oid = data["oid"]
     if msg.photo:
         file_id = msg.photo[-1].file_id
-        note = msg.caption or "Delivered"
+        note = msg.caption or "Delivered successfully"
         db.update_order(oid, "delivered", file_id, note)
         order = db.get_order(oid)
-        try: await bot.send_photo(order["user_id"], file_id, caption=f"✅ Order #{oid} delivered")
+        try: await bot.send_photo(order["user_id"], file_id, caption=f"✅ *Your order `#{oid}` has been delivered!*\n📝 Note: {note}", parse_mode="Markdown")
         except: pass
     else:
-        db.update_order(oid, "delivered", note="Delivered")
+        db.update_order(oid, "delivered", note="Delivered successfully")
         order = db.get_order(oid)
-        try: await bot.send_message(order["user_id"], f"✅ Order #{oid} delivered")
+        try: await bot.send_message(order["user_id"], f"✅ *Your order `#{oid}` has been delivered!*\nThank you for purchasing!", parse_mode="Markdown")
         except: pass
-    await msg.answer("✅ Delivered", reply_markup=admin_kb())
+    await msg.answer(f"✅ Order `#{oid}` Marked as Delivered!", reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
 # Broadcast
 @dp.callback_query(lambda c: c.data == "admin_broadcast")
 async def broadcast_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send message to broadcast:")
+    await call.message.edit_text("📨 *Send the message you want to broadcast:*", parse_mode="Markdown")
     await state.set_state(Admin.broadcast_msg)
 
 @dp.message(Admin.broadcast_msg)
@@ -612,28 +671,31 @@ async def broadcast_do(msg: Message, state: FSMContext, bot: Bot):
     for u in users:
         if not u["is_banned"]:
             try:
-                await bot.send_message(u["user_id"], text)
+                await bot.send_message(u["user_id"], f"📢 *Announcement*\n━━━━━━━━━━━━━━━━━━━━━\n{text}", parse_mode="Markdown")
                 sent += 1
             except: pass
-    await msg.answer(f"✅ Sent to {sent}/{len(users)}", reply_markup=admin_kb())
+    await msg.answer(f"✅ Broadcast complete! Sent to {sent}/{len(users)} users.", reply_markup=admin_kb())
     await state.clear()
 
 # ─── ADMIN VPN MANAGEMENT ───
 @dp.callback_query(lambda c: c.data == "admin_vpn")
 async def vpn_menu(call: CallbackQuery):
-    await call.message.edit_text("🌐 VPN Management", reply_markup=admin_vpn_kb())
+    await call.message.edit_text("🌐 *VPN Management Panel*", reply_markup=admin_vpn_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "vpn_orders")
 async def vpn_orders(call: CallbackQuery):
     orders = db.get_all_orders(limit=50)
     vpn_orders = [o for o in orders if "vpn" in o["category_name"].lower() or "vpn" in o["product_name"].lower()]
-    if not vpn_orders: return await call.message.edit_text("No VPN orders", reply_markup=admin_vpn_kb())
-    txt = "\n".join(f"#{o['id']} {o['product_name']} user {o['user_id']}" for o in vpn_orders[:20])
-    await call.message.edit_text(f"🌐 VPN Orders:\n{txt}", reply_markup=admin_vpn_kb())
+    if not vpn_orders: return await call.message.edit_text("❌ No VPN orders found", reply_markup=admin_vpn_kb())
+    
+    txt = "🌐 *RECENT VPN ORDERS*\n━━━━━━━━━━━━━━━━━━━━━\n"
+    for o in vpn_orders[:15]:
+         txt += f"🛒 `#{o['id']}` | {o['product_name']}\n👤 User: `{o['user_id']}`\n━━━━━━━━━━━━━━━━━━━━━\n"
+    await call.message.edit_text(txt, reply_markup=admin_vpn_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "vpn_add")
 async def vpn_add_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send Order ID to add VPN config:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back", callback_data="admin_vpn")]]))
+    await call.message.edit_text("🛒 *Send Order ID to add VPN config:*", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back", callback_data="admin_vpn")]]), parse_mode="Markdown")
     await state.set_state(Admin.vpn_oid)
 
 @dp.message(Admin.vpn_oid)
@@ -641,17 +703,17 @@ async def vpn_oid(msg: Message, state: FSMContext):
     try:
         oid = int(msg.text)
         order = db.get_order(oid)
-        if not order: return await msg.answer("Not found")
+        if not order: return await msg.answer("❌ Order not found")
         await state.update_data(vpn_oid=oid)
-        await msg.answer("Send config data:")
+        await msg.answer("⚙️ *Send config data/Key:*", parse_mode="Markdown")
         await state.set_state(Admin.vpn_data)
-    except: await msg.answer("Invalid ID")
+    except: await msg.answer("❌ Invalid ID format")
 
 @dp.message(Admin.vpn_data)
 async def vpn_data(msg: Message, state: FSMContext):
     config = msg.text.strip()
     await state.update_data(vpn_data=config)
-    await msg.answer("Server location?")
+    await msg.answer("🌍 *Enter Server Location:*", parse_mode="Markdown")
     await state.set_state(Admin.vpn_loc)
 
 @dp.message(Admin.vpn_loc)
@@ -663,26 +725,26 @@ async def vpn_loc(msg: Message, state: FSMContext, bot: Bot):
     order = db.get_order(oid)
     db.add_vpn_config(oid, order["user_id"], "Manual Config", config, loc, 30)
     db.update_order(oid, "delivered")
-    await msg.answer(f"✅ VPN Config added for #{oid}", reply_markup=admin_kb())
-    try: await bot.send_message(order["user_id"], f"🌐 VPN Ready!\nServer: {loc}\nConfig:\n`{config[:500]}`", parse_mode="Markdown")
+    await msg.answer(f"✅ VPN Config added & delivered for order `#{oid}`", reply_markup=admin_kb(), parse_mode="Markdown")
+    try: await bot.send_message(order["user_id"], f"🌐 *Your VPN is Ready!*\n━━━━━━━━━━━━━━━━━━━━━\n🌍 *Server:* {loc}\n⚙️ *Config/Key:*\n`{config[:500]}`\n━━━━━━━━━━━━━━━━━━━━━", parse_mode="Markdown")
     except: pass
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "vpn_stock_status")
 async def vpn_stock(call: CallbackQuery):
     counts = db.get_stock_counts()
-    txt = "\n".join(f"{c['category']}: {c['cnt']}" for c in counts) or "No stock"
-    await call.message.edit_text(f"🔑 Stock:\n{txt}", reply_markup=admin_vpn_kb())
+    txt = "\n".join(f"🔸 {c['category']}: {c['cnt']} available" for c in counts) or "No stock available"
+    await call.message.edit_text(f"🔑 *Current VPN/Proxy Stock:*\n━━━━━━━━━━━━━━━━━━━━━\n{txt}\n━━━━━━━━━━━━━━━━━━━━━", reply_markup=admin_vpn_kb(), parse_mode="Markdown")
 
 # ─── ADMIN STOCK MANAGEMENT ───
 @dp.callback_query(lambda c: c.data == "admin_stock")
 async def stock_menu(call: CallbackQuery):
-    await call.message.edit_text("🔑 Stock Management", reply_markup=admin_stock_kb())
+    await call.message.edit_text("🔑 *Stock Management Panel*", reply_markup=admin_stock_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "stock_view")
 async def stock_view(call: CallbackQuery):
     stock = db.get_all_stock()
-    if not stock: return await call.message.edit_text("No stock", reply_markup=admin_stock_kb())
+    if not stock: return await call.message.edit_text("❌ No stock available", reply_markup=admin_stock_kb())
     by_cat = {}
     for s in stock:
         c = s["category"]
@@ -690,24 +752,26 @@ async def stock_view(call: CallbackQuery):
         by_cat[c]["total"]+=1
         if s["is_used"]: by_cat[c]["used"]+=1
         else: by_cat[c]["avail"]+=1
-    txt = "\n".join(f"{c} total:{v['total']} avail:{v['avail']}" for c,v in by_cat.items())
-    await call.message.edit_text(f"🔑 Stock:\n{txt}", reply_markup=admin_stock_kb())
+    txt = "📊 *STOCK OVERVIEW*\n━━━━━━━━━━━━━━━━━━━━━\n"
+    for c,v in by_cat.items():
+         txt += f"📁 *{c.upper()}*\nTotal: {v['total']} | Available: {v['avail']} | Used: {v['used']}\n━━━━━━━━━━━━━━━━━━━━━\n"
+    await call.message.edit_text(txt, reply_markup=admin_stock_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "stock_add")
 async def stock_add(call: CallbackQuery, state: FSMContext):
-    cats = {"key":"🔑 Keys","proxy":"🌐 Proxy","vps":"🖥️ VPS"}
+    cats = {"key":"🔑 VPN Keys","proxy":"🌐 Proxy IPs","vps":"🖥️ VPS Logins"}
     kb = InlineKeyboardBuilder()
     for k,v in cats.items():
         kb.row(InlineKeyboardButton(text=v, callback_data=f"stockcat_{k}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
-    await call.message.edit_text("Select stock type:", reply_markup=kb.as_markup())
+    await call.message.edit_text("📁 *Select category to add stock into:*", reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.stock_cat)
 
 @dp.callback_query(lambda c: c.data.startswith("stockcat_"))
 async def stock_cat_chosen(call: CallbackQuery, state: FSMContext):
     cat = call.data.split("_")[1]
     await state.update_data(stock_cat=cat)
-    await call.message.edit_text(f"Send keys for {cat.upper()} (one per line):", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back", callback_data="stock_add")]]))
+    await call.message.edit_text(f"📝 *Send items for {cat.upper()}*\n(Send one item per line):", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back", callback_data="stock_add")]]), parse_mode="Markdown")
     await state.set_state(Admin.stock_keys)
 
 @dp.message(Admin.stock_keys)
@@ -715,33 +779,33 @@ async def stock_keys_save(msg: Message, state: FSMContext):
     data = await state.get_data()
     cat = data["stock_cat"]
     keys = [k.strip() for k in msg.text.split("\n") if k.strip()]
-    if not keys: return await msg.answer("No keys")
+    if not keys: return await msg.answer("❌ No valid items found")
     added = db.add_stock_keys_bulk(cat, keys)
-    await msg.answer(f"✅ Added {added} keys to {cat}", reply_markup=admin_stock_kb())
+    await msg.answer(f"✅ Successfully added *{added} items* to `{cat}` stock!", reply_markup=admin_stock_kb(), parse_mode="Markdown")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "stock_del")
 async def stock_del(call: CallbackQuery, state: FSMContext):
     stock = db.get_all_stock()
-    if not stock: return await call.message.edit_text("No stock to delete", reply_markup=admin_stock_kb())
+    if not stock: return await call.message.edit_text("❌ No stock available to delete", reply_markup=admin_stock_kb())
     kb = InlineKeyboardBuilder()
     for s in stock[:20]:
         kb.row(InlineKeyboardButton(text=f"{'✅' if s['is_used'] else '📦'} #{s['id']} {s['key_data'][:25]}...", callback_data=f"delkey_{s['id']}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
-    await call.message.edit_text("Select key to delete:", reply_markup=kb.as_markup())
+    await call.message.edit_text("🗑️ *Select a key to delete:*", reply_markup=kb.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("delkey_"))
 async def del_key(call: CallbackQuery):
     kid = int(call.data.split("_")[1])
     ok = db.delete_stock_key(kid)
-    await call.answer("Deleted" if ok else "Not found")
+    await call.answer("✅ Item Deleted successfully!" if ok else "❌ Not found")
     # Refresh menu
     await stock_del(call, None)
 
 # Ban / Unban
 @dp.callback_query(lambda c: c.data == "admin_ban")
 async def ban_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send user ID to ban:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]))
+    await call.message.edit_text("⛔ *Send user ID to BAN:*", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]), parse_mode="Markdown")
     await state.set_state(Admin.ban_uid)
 
 @dp.message(Admin.ban_uid)
@@ -749,15 +813,15 @@ async def ban_do(msg: Message, state: FSMContext, bot: Bot):
     try:
         uid = int(msg.text)
         db.set_ban(uid, True)
-        await msg.answer(f"⛔ Banned {uid}", reply_markup=admin_kb())
-        try: await bot.send_message(uid, "❌ You have been banned.")
+        await msg.answer(f"⛔ User `{uid}` has been banned.", reply_markup=admin_kb(), parse_mode="Markdown")
+        try: await bot.send_message(uid, "❌ You have been banned by the Administrator.")
         except: pass
-    except: await msg.answer("Invalid ID")
+    except: await msg.answer("❌ Invalid ID format")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "admin_unban")
 async def unban_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send user ID to unban:")
+    await call.message.edit_text("✅ *Send user ID to UNBAN:*", parse_mode="Markdown")
     await state.set_state(Admin.unban_uid)
 
 @dp.message(Admin.unban_uid)
@@ -765,29 +829,29 @@ async def unban_do(msg: Message, state: FSMContext, bot: Bot):
     try:
         uid = int(msg.text)
         db.set_ban(uid, False)
-        await msg.answer(f"✅ Unbanned {uid}", reply_markup=admin_kb())
-        try: await bot.send_message(uid, "✅ You have been unbanned!")
+        await msg.answer(f"✅ User `{uid}` has been unbanned.", reply_markup=admin_kb(), parse_mode="Markdown")
+        try: await bot.send_message(uid, "✅ Your account has been unbanned! You can now use the bot.")
         except: pass
-    except: await msg.answer("Invalid ID")
+    except: await msg.answer("❌ Invalid ID format")
     await state.clear()
 
 # Restore DB
 @dp.callback_query(lambda c: c.data == "admin_restore")
 async def restore_start(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Send .db file to restore database:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]))
+    await call.message.edit_text("💾 *Send .db file to restore database:*", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin", callback_data="admin_menu")]]), parse_mode="Markdown")
     await state.set_state(Admin.restore_db)
 
 @dp.message(Admin.restore_db, F.document)
 async def restore_db(msg: Message, state: FSMContext, bot: Bot):
     doc = msg.document
-    if not doc.file_name.endswith('.db'): return await msg.answer("Only .db file")
-    await msg.answer("Restoring...")
+    if not doc.file_name.endswith('.db'): return await msg.answer("❌ Please upload a valid .db file.")
+    await msg.answer("🔄 Restoring database...")
     try:
         file = await bot.get_file(doc.file_id)
         await bot.download_file(file.file_path, db.path)
         db._init()
-        await msg.answer("✅ Database restored!", reply_markup=admin_kb())
-    except Exception as e: await msg.answer(f"Error: {e}")
+        await msg.answer("✅ Database restored successfully!", reply_markup=admin_kb())
+    except Exception as e: await msg.answer(f"❌ Error: {e}")
     await state.clear()
 
 # ─── MAIN ───
