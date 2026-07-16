@@ -917,7 +917,7 @@ async def cmd_start(message: Message):
         
         f"{EMOJIS['rocket']} **What we offer:**\n"
         f"{EMOJIS['bullet']} {EMOJIS['fire']} Free Fire Diamonds\n"
-        f"{EMOJIS['bullet']} {EMOJIS['target']} PUBG Mobile UC\n"
+        f"{EMOJIS['bullet']} {EMOJIS['pubg']} PUBG Mobile UC\n"
         f"{EMOJIS['bullet']} {EMOJIS['dragon']} MLBB Diamonds\n"
         f"{EMOJIS['bullet']} {EMOJIS['movie']} Netflix, YouTube Premium, Crunchyroll\n"
         f"{EMOJIS['bullet']} {EMOJIS['gift']} Gift Cards & Social Media Services\n\n"
