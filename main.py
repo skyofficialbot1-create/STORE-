@@ -1,1374 +1,2290 @@
 #!/usr/bin/env python3
 """
-SKY TopUp Telegram Bot — Ultimate Enterprise v6.0
-────────────────────────────────────────────────
-• Fully DYNAMIC categories — add "YouTube Premium", "Proxy", or ANY new
-  category from the Admin Panel and it instantly appears in the user shop.
-  No more hardcoded Game/VPN/Streaming — the bot builds the menu from
-  whatever categories exist in the database.
-• Auto‑delivery (email/password/activation key) OR manual (user ID) —
-  chosen per‑product when the admin creates it.
-• Clean, single‑column "premium" button layout everywhere (no cramped
-  side‑by‑side rows) — built to feel like a polished storefront.
-• VPN / Proxy / Streaming / YouTube Premium accounts auto‑delivery
-• Duration‑based expiry calculation & display
-• Stock management for digital goods
-• Click‑driven recharge with preset amounts
-• Full admin panel (orders, deposits, balance, products, categories,
-  stock, DB backup/restore, broadcast, search)
+████████╗ ██████╗ ██████╗ ██╗   ██╗██████╗     ███████╗████████╗ ██████╗ ██████╗ ███████╗
+╚══██╔══╝██╔═══██╗██╔══██╗██║   ██║██╔══██╗    ██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗██╔════╝
+   ██║   ██║   ██║██████╔╝██║   ██║██████╔╝    ███████╗   ██║   ██║   ██║██████╔╝█████╗  
+   ██║   ██║   ██║██╔═══╝ ██║   ██║██╔══██╗    ╚════██║   ██║   ██║   ██║██╔══██╗██╔══╝  
+   ██║   ╚██████╔╝██║     ╚██████╔╝██║  ██║    ███████║   ██║   ╚██████╔╝██║  ██║███████╗
+   ╚═╝    ╚═════╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝    ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝
+                                                                                          
+   ╔══════════════════════════════════════════════════════════════════════════════════╗
+   ║               🚀 TopUp Store BD — Premium Telegram Bot v2.0                      ║
+   ║          🔥 Free Fire | PUBG | MLBB | Netflix | YouTube | Crunchyroll          ║
+   ║                    ⚡ Instant AI Auto-Delivery System                            ║
+   ╚══════════════════════════════════════════════════════════════════════════════════╝
+   
+   ✨ Features:
+   • 8 Premium Categories with Colorful Style Buttons (primary/success/danger)
+   • Real-time Order Tracking & Auto-Delivery
+   • Wallet Balance System with Auto Top-up
+   • Full Admin Panel (Dashboard, Orders, Deliver, Broadcast)
+   • SQLite Database (no external DB needed)
+   • Premium Telegram Bot API 9.4+ Design
+   
+   📦 Deploy: python topup_bot.py
+   🔧 Requirements: aiogram>=3.10, aiofiles
 """
 
-import logging, os, json, sqlite3, hashlib, secrets, shutil
+import asyncio
+import json
+import os
+import sys
+import sqlite3
+import random
+import string
 from datetime import datetime, timedelta
-from contextlib import contextmanager
-from typing import Optional
+from typing import Optional, Dict, List, Tuple, Any
+from pathlib import Path
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters,
-)
+# ==================== CORE IMPORTS ====================
+try:
+    from aiogram import Bot, Dispatcher, types, F
+    from aiogram.filters import Command, CommandStart, CommandObject
+    from aiogram.types import (
+        Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+        ReplyKeyboardMarkup, KeyboardButton, FSInputFile, BufferedInputFile,
+        ChatAdministratorRights
+    )
+    from aiogram.fsm.context import FSMContext
+    from aiogram.fsm.state import State, StatesGroup
+    from aiogram.fsm.storage.memory import MemoryStorage
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+except ImportError:
+    print("""
+    ❌ aiogram not installed!
+    
+    📦 Install with:
+    pip install aiogram aiofiles
+    
+    📱 On Termux:
+    pkg install python
+    pip install aiogram aiofiles
+    """)
+    sys.exit(1)
 
-# ─────────────────────────────────────────────
-# 🎛️ CONFIG
-# ─────────────────────────────────────────────
-class Config:
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk")
-    BKASH_NUMBER = os.getenv("BKASH_NUMBER", "01742958563")
-    NAGAD_NUMBER = os.getenv("NAGAD_NUMBER", "01748506069")
-    ROCKET_NUMBER = os.getenv("ROCKET_NUMBER", "01742958563")
-    MIN_DEPOSIT = 50.0
-    MIN_PASSWORD_LENGTH = 6
-    DB_PATH = os.getenv("DB_PATH", "skytopup.db")
-    ADMIN_USER_ID = 7689218221
-    BRAND_NAME = "SKY TOPUP"
+# ==================== CONFIGURATION ====================
+# ⚠️ আপনার তথ্য দিয়ে পরিবর্তন করুন ⚠️
 
-logging.basicConfig(
-    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("SkyTopUp")
+BOT_TOKEN = "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk"  # @BotFather থেকে নিন
 
-# ─────────────────────────────────────────────
-# 🗄️ DATABASE
-# ─────────────────────────────────────────────
-@contextmanager
-def db():
-    conn = sqlite3.connect(Config.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"DB error: {e}")
-        raise
-    finally:
-        conn.close()
+ADMIN_IDS = [7689218221]  # আপনার টেলিগ্রাম ইউজার আইডি দিন
 
-def init_db():
-    os.makedirs(os.path.dirname(Config.DB_PATH) or ".", exist_ok=True)
-    with db() as conn:
+# পেমেন্ট নম্বরসমূহ
+NAGAD_NUMBER = "01748506069"
+BKASH_NUMBER = "01742958563"
+ROCKET_NUMBER = "01742958563"
+UPI_ID = "example@upi"
+
+# বট সেটিংস
+BOT_USERNAME = "@SKY_STOR_BOT"
+BOT_NAME = "SKY STORE"
+SUPPORT_USERNAME = "FBSKYSUPPORT"  # @ ছাড়া
+
+# ==================== EMOJI & STYLE CONSTANTS ====================
+EMOJIS = {
+    "freefire": "🔥",
+    "pubg": "🎯",
+    "mlbb": "🐉",
+    "netflix": "🎬",
+    "youtube": "▶️",
+    "crunchyroll": "🍿",
+    "spotify": "🎵",
+    "balance": "💰",
+    "crown": "👑",
+    "star": "⭐",
+    "lightning": "⚡",
+    "shield": "🛡️",
+    "cart": "🛒",
+    "wallet": "💳",
+    "package": "📦",
+    "clock": "⏰",
+    "verified": "✅",
+    "cross": "❌",
+    "warning": "⚠️",
+    "info": "ℹ️",
+    "settings": "⚙️",
+    "admin": "🔐",
+    "users": "👥",
+    "chart": "📊",
+    "message": "📨",
+    "back": "🔙",
+    "next": "➡️",
+    "previous": "⬅️",
+    "home": "🏠",
+    "search": "🔍",
+    "bell": "🔔",
+    "gift": "🎁",
+    "fire": "🔥",
+    "diamond": "💎",
+    "trophy": "🏆",
+    "medal": "🥇",
+    "rocket": "🚀",
+    "sparkle": "✨",
+    "rainbow": "🌈",
+    "heart": "❤️",
+    "thumb": "👍",
+    "clap": "👏",
+    "wave": "👋",
+    "globe": "🌍",
+    "lock": "🔒",
+    "unlock": "🔓",
+    "key": "🔑",
+    "money": "💵",
+    "cash": "💸",
+    "bank": "🏦",
+    "card": "💳",
+    "phone": "📱",
+    "computer": "💻",
+    "game": "🎮",
+    "headphone": "🎧",
+    "music": "🎶",
+    "movie": "🎥",
+    "tv": "📺",
+    "book": "📚",
+    "pen": "✏️",
+    "clip": "📎",
+    "file": "📄",
+    "folder": "📁",
+    "trash": "🗑️",
+    "plus": "➕",
+    "minus": "➖",
+    "check": "✔️",
+    "bullet": "▸",
+    "arrow": "→",
+    "divider": "━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# ==================== PRODUCTS DATABASE ====================
+# 📦 সম্পূর্ণ প্রোডাক্ট ক্যাটালগ — JSON ফরম্যাটে
+PRODUCTS_CONFIG = {
+    "categories": [
+        {
+            "id": "freefire",
+            "name": "Free Fire Diamonds",
+            "emoji": "🔥",
+            "color": "danger",
+            "description": "⚡ Best price in Bangladesh!\nInstant delivery via AI auto-system",
+            "input_label": "🎮 Enter your Free Fire Player ID:",
+            "input_placeholder": "Example: 1234567890",
+            "products": [
+                {"id": "ff_70", "name": "70  💎  Diamond", "price": 7,  "popular": False, "discount": 0},
+                {"id": "ff_100", "name": "100 💎  Diamond", "price": 10, "popular": False, "discount": 0},
+                {"id": "ff_115", "name": "115 💎  Diamond", "price": 12, "popular": True,  "discount": 5},
+                {"id": "ff_140", "name": "140 💎  Diamond", "price": 14, "popular": False, "discount": 0},
+                {"id": "ff_210", "name": "210 💎  Diamond", "price": 21, "popular": False, "discount": 0},
+                {"id": "ff_240", "name": "240 💎  Diamond", "price": 24, "popular": True,  "discount": 10},
+                {"id": "ff_355", "name": "355 💎  Diamond", "price": 35, "popular": False, "discount": 0},
+                {"id": "ff_425", "name": "425 💎  Diamond", "price": 42, "popular": False, "discount": 0},
+                {"id": "ff_505", "name": "505 💎  Diamond", "price": 49, "popular": True,  "discount": 15},
+                {"id": "ff_610", "name": "610 💎  Diamond", "price": 59, "popular": False, "discount": 0},
+                {"id": "ff_720", "name": "720 💎  Diamond", "price": 69, "popular": False, "discount": 0},
+                {"id": "ff_860", "name": "860 💎  Diamond", "price": 79, "popular": False, "discount": 0},
+                {"id": "ff_1000", "name": "1000 💎 Diamond", "price": 89, "popular": True,  "discount": 25},
+                {"id": "ff_1090", "name": "1090 💎 Diamond", "price": 99, "popular": False, "discount": 0},
+                {"id": "ff_1250", "name": "1250 💎 Diamond", "price": 119, "popular": False, "discount": 0},
+                {"id": "ff_1600", "name": "1600 💎 Diamond", "price": 149, "popular": False, "discount": 0},
+                {"id": "ff_2000", "name": "2000 💎 Diamond", "price": 179, "popular": False, "discount": 0},
+                {"id": "ff_2180", "name": "2180 💎 Diamond", "price": 199, "popular": True,  "discount": 50},
+                {"id": "ff_3000", "name": "3000 💎 Diamond", "price": 269, "popular": False, "discount": 0},
+                {"id": "ff_4000", "name": "4000 💎 Diamond", "price": 349, "popular": False, "discount": 0},
+                {"id": "ff_5000", "name": "5000 💎 Diamond", "price": 429, "popular": False, "discount": 0},
+                {"id": "ff_5600", "name": "5600 💎 Diamond", "price": 499, "popular": True,  "discount": 100},
+                {"id": "ff_10000", "name": "10000 💎 Diamond", "price": 849, "popular": False, "discount": 0},
+                {"id": "ff_membership", "name": "👑 Weekly Membersip", "price": 25, "popular": True, "discount": 5},
+                {"id": "ff_monthly", "name": "📅 Monthly Membersip", "price": 89, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "pubg",
+            "name": "PUBG Mobile UC",
+            "emoji": "🎯",
+            "color": "success",
+            "description": "🔫 Best UC price in BD!\nAll server supported (BGMI/PUBG)",
+            "input_label": "🎮 Enter your PUBG Player ID:",
+            "input_placeholder": "Example: 1234567890",
+            "products": [
+                {"id": "pubg_60", "name": "60 UC", "price": 15, "popular": False, "discount": 0},
+                {"id": "pubg_180", "name": "180+10 UC", "price": 35, "popular": True, "discount": 5},
+                {"id": "pubg_325", "name": "325+20 UC", "price": 59, "popular": False, "discount": 0},
+                {"id": "pubg_385", "name": "385 UC", "price": 69, "popular": False, "discount": 0},
+                {"id": "pubg_505", "name": "505 UC", "price": 89, "popular": False, "discount": 0},
+                {"id": "pubg_660", "name": "660+35 UC", "price": 119, "popular": True, "discount": 10},
+                {"id": "pubg_1100", "name": "1100 UC", "price": 179, "popular": False, "discount": 0},
+                {"id": "pubg_1500", "name": "1500 UC", "price": 249, "popular": False, "discount": 0},
+                {"id": "pubg_1800", "name": "1800+150 UC", "price": 299, "popular": True, "discount": 20},
+                {"id": "pubg_3000", "name": "3000 UC", "price": 499, "popular": False, "discount": 0},
+                {"id": "pubg_3850", "name": "3850 UC", "price": 599, "popular": False, "discount": 0},
+                {"id": "pubg_6000", "name": "6000 UC", "price": 899, "popular": False, "discount": 0},
+                {"id": "pubg_8100", "name": "8100 UC", "price": 1199, "popular": False, "discount": 0},
+                {"id": "pubg_15000", "name": "15000 UC", "price": 2199, "popular": False, "discount": 0},
+                {"id": "pubg_royal", "name": "👑 Royale Pass", "price": 29, "popular": True, "discount": 0},
+            ]
+        },
+        {
+            "id": "mlbb",
+            "name": "MLBB Diamonds",
+            "emoji": "🐉",
+            "color": "danger",
+            "description": "🐉 Mobile Legends: Bang Bang\nCheapest diamonds in BD!",
+            "input_label": "🎮 Enter your MLBB Game ID:",
+            "input_placeholder": "Example: 1234567890(1234)",
+            "products": [
+                {"id": "mlbb_100", "name": "100 💎 Diamond", "price": 18, "popular": False, "discount": 0},
+                {"id": "mlbb_250", "name": "250 💎 Diamond", "price": 39, "popular": False, "discount": 0},
+                {"id": "mlbb_500", "name": "500 💎 Diamond (Best Seller)", "price": 79, "popular": True, "discount": 5},
+                {"id": "mlbb_750", "name": "750 💎 Diamond", "price": 119, "popular": False, "discount": 0},
+                {"id": "mlbb_1000", "name": "1000 💎 Diamond", "price": 149, "popular": True, "discount": 10},
+                {"id": "mlbb_1500", "name": "1500 💎 Diamond", "price": 219, "popular": False, "discount": 0},
+                {"id": "mlbb_2000", "name": "2000 💎 Diamond", "price": 289, "popular": False, "discount": 0},
+                {"id": "mlbb_3000", "name": "3000 💎 Diamond", "price": 419, "popular": False, "discount": 0},
+                {"id": "mlbb_5000", "name": "5000 💎 Diamond", "price": 699, "popular": True, "discount": 50},
+                {"id": "mlbb_weekly", "name": "📅 Weekly Diamond Pass", "price": 39, "popular": True, "discount": 0},
+                {"id": "mlbb_starlight", "name": "🌟 Starlight Membersip", "price": 49, "popular": True, "discount": 0},
+            ]
+        },
+        {
+            "id": "netflix",
+            "name": "Netflix Premium",
+            "emoji": "🎬",
+            "color": "danger",
+            "description": "🎬 Watch anywhere, anytime!\nFull HD & 4K available",
+            "input_label": "📧 Enter your Netflix email:",
+            "input_placeholder": "your.email@gmail.com",
+            "products": [
+                {"id": "nflx_mobile", "name": "📱 Mobile 1 Month", "price": 149, "popular": False, "discount": 0},
+                {"id": "nflx_basic", "name": "💻 Basic 1 Month", "price": 249, "popular": False, "discount": 0},
+                {"id": "nflx_standard", "name": "📺 Standard 1 Month", "price": 349, "popular": True, "discount": 50},
+                {"id": "nflx_premium", "name": "👑 Premium 1 Month", "price": 499, "popular": True, "discount": 100},
+                {"id": "nflx_3m", "name": "Premium 3 Months (🔥Save 30%)", "price": 1299, "popular": False, "discount": 0},
+                {"id": "nflx_6m", "name": "Premium 6 Months (🔥Save 50%)", "price": 2499, "popular": False, "discount": 0},
+                {"id": "nflx_12m", "name": "Premium 12 Months (🔥Save 60%)", "price": 4599, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "youtube",
+            "name": "YouTube Premium",
+            "emoji": "▶️",
+            "color": "danger",
+            "description": "▶️ No ads! Background play!\nYouTube Music included",
+            "input_label": "📧 Enter your Google email:",
+            "input_placeholder": "your.email@gmail.com",
+            "products": [
+                {"id": "yt_1m", "name": "1 Month Individual", "price": 199, "popular": True, "discount": 0},
+                {"id": "yt_3m", "name": "3 Months Individual (🔥Save 15%)", "price": 549, "popular": False, "discount": 0},
+                {"id": "yt_6m", "name": "6 Months Individual (🔥Save 25%)", "price": 999, "popular": False, "discount": 0},
+                {"id": "yt_12m", "name": "12 Months Individual (🔥Save 40%)", "price": 1799, "popular": False, "discount": 0},
+                {"id": "yt_family_1m", "name": "👨‍👩‍👧‍👦 Family 1 Month", "price": 349, "popular": True, "discount": 0},
+                {"id": "yt_student_1m", "name": "🎓 Student 1 Month", "price": 129, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "crunchyroll",
+            "name": "Crunchyroll Premium",
+            "emoji": "🍿",
+            "color": "success",
+            "description": "🍿 Watch anime ad-free!\nSimulcast & HD streaming",
+            "input_label": "📧 Enter your Crunchyroll email:",
+            "input_placeholder": "your.email@gmail.com",
+            "products": [
+                {"id": "cr_1m", "name": "1 Month Fan", "price": 249, "popular": False, "discount": 0},
+                {"id": "cr_3m", "name": "3 Months Fan (🔥Save 20%)", "price": 649, "popular": False, "discount": 0},
+                {"id": "cr_12m", "name": "12 Months Fan (🔥Save 40%)", "price": 1999, "popular": False, "discount": 0},
+                {"id": "cr_mega_1m", "name": "👑 Mega Fan 1 Month", "price": 349, "popular": False, "discount": 0},
+                {"id": "cr_mega_12m", "name": "👑 Mega Fan 12 Months", "price": 2999, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "spotify",
+            "name": "Spotify Premium",
+            "emoji": "🎵",
+            "color": "success",
+            "description": "🎵 Ad-free music streaming!\nOffline downloads & HQ audio",
+            "input_label": "📧 Enter your Spotify email:",
+            "input_placeholder": "your.email@gmail.com",
+            "products": [
+                {"id": "sp_1m", "name": "1 Month Individual", "price": 149, "popular": True, "discount": 0},
+                {"id": "sp_3m", "name": "3 Months (🔥Save 10%)", "price": 399, "popular": False, "discount": 0},
+                {"id": "sp_6m", "name": "6 Months (🔥Save 20%)", "price": 749, "popular": False, "discount": 0},
+                {"id": "sp_12m", "name": "12 Months (🔥Save 30%)", "price": 1299, "popular": False, "discount": 0},
+                {"id": "sp_duo_1m", "name": "👫 Duo 1 Month", "price": 249, "popular": False, "discount": 0},
+                {"id": "sp_family_1m", "name": "👨‍👩‍👧‍👦 Family 1 Month", "price": 299, "popular": True, "discount": 50},
+                {"id": "sp_student_1m", "name": "🎓 Student 1 Month", "price": 79, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "valo",
+            "name": "Valorant VP",
+            "emoji": "🎯",
+            "color": "danger",
+            "description": "🎯 Buy Valorant Points!\nCheapest rate for Bangladeshi players",
+            "input_label": "🎮 Enter your Riot ID:",
+            "input_placeholder": "PlayerName#1234",
+            "products": [
+                {"id": "valo_475", "name": "475 VP", "price": 299, "popular": False, "discount": 0},
+                {"id": "valo_1000", "name": "1000 VP (Best Seller)", "price": 599, "popular": True, "discount": 50},
+                {"id": "valo_2050", "name": "2050 VP", "price": 1199, "popular": False, "discount": 0},
+                {"id": "valo_3650", "name": "3650 VP (🔥Save 20%)", "price": 1999, "popular": False, "discount": 0},
+                {"id": "valo_5350", "name": "5350 VP (🔥Save 30%)", "price": 2899, "popular": False, "discount": 0},
+                {"id": "valo_11000", "name": "11000 VP (🔥Save 40%)", "price": 5499, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "social",
+            "name": "Social Media Services",
+            "emoji": "📱",
+            "color": "primary",
+            "description": "📱 Social media marketing\nFollowers, likes, views & more!",
+            "input_label": "🔗 Enter your profile link or ID:",
+            "input_placeholder": "instagram.com/username",
+            "products": [
+                {"id": "soc_ig_100", "name": "📸 100 IG Followers", "price": 29, "popular": False, "discount": 0},
+                {"id": "soc_ig_500", "name": "📸 500 IG Followers", "price": 99, "popular": True, "discount": 0},
+                {"id": "soc_ig_1000", "name": "📸 1K IG Followers", "price": 179, "popular": False, "discount": 0},
+                {"id": "soc_fb_500", "name": "👍 500 FB Page Likes", "price": 79, "popular": True, "discount": 0},
+                {"id": "soc_fb_1000", "name": "👍 1K FB Page Likes", "price": 149, "popular": False, "discount": 0},
+                {"id": "soc_tg_100", "name": "✈️ 100 TG Members", "price": 49, "popular": False, "discount": 0},
+                {"id": "soc_tg_500", "name": "✈️ 500 TG Members", "price": 199, "popular": True, "discount": 0},
+                {"id": "soc_tg_1000", "name": "✈️ 1K TG Members", "price": 349, "popular": False, "discount": 0},
+                {"id": "soc_tiktok_200", "name": "🎵 200 TikTok Followers", "price": 49, "popular": False, "discount": 0},
+                {"id": "soc_tiktok_1000", "name": "🎵 1K TikTok Followers", "price": 199, "popular": True, "discount": 0},
+                {"id": "soc_yt_100", "name": "▶️ 100 YT Subscribers", "price": 59, "popular": False, "discount": 0},
+                {"id": "soc_yt_500", "name": "▶️ 500 YT Subscribers", "price": 249, "popular": False, "discount": 0},
+                {"id": "soc_yt_1000", "name": "▶️ 1K YT Subscribers", "price": 449, "popular": True, "discount": 0},
+            ]
+        },
+        {
+            "id": "giftcard",
+            "name": "🎁 Gift Cards & Vouchers",
+            "emoji": "🎁",
+            "color": "primary",
+            "description": "🎁 Gift cards for all platforms!\nGoogle Play, Steam, PSN & more",
+            "input_label": "📧 Enter your email to receive code:",
+            "input_placeholder": "your.email@gmail.com",
+            "products": [
+                {"id": "gc_google_50", "name": "🅿️ Google Play $5", "price": 499, "popular": False, "discount": 0},
+                {"id": "gc_google_100", "name": "🅿️ Google Play $10", "price": 949, "popular": True, "discount": 0},
+                {"id": "gc_google_200", "name": "🅿️ Google Play $20", "price": 1899, "popular": False, "discount": 0},
+                {"id": "gc_steam_5", "name": "🎮 Steam $5", "price": 549, "popular": False, "discount": 0},
+                {"id": "gc_steam_10", "name": "🎮 Steam $10", "price": 999, "popular": True, "discount": 0},
+                {"id": "gc_steam_20", "name": "🎮 Steam $20", "price": 1949, "popular": False, "discount": 0},
+                {"id": "gc_psn_10", "name": "🎮 PSN $10", "price": 1099, "popular": False, "discount": 0},
+                {"id": "gc_psn_20", "name": "🎮 PSN $20", "price": 2099, "popular": True, "discount": 0},
+                {"id": "gc_xbox_10", "name": "🎮 Xbox $10", "price": 1049, "popular": False, "discount": 0},
+                {"id": "gc_xbox_20", "name": "🎮 Xbox $20", "price": 1999, "popular": False, "discount": 0},
+                {"id": "gc_apple_10", "name": "🍎 Apple $10", "price": 999, "popular": True, "discount": 0},
+                {"id": "gc_apple_25", "name": "🍎 Apple $25", "price": 2399, "popular": False, "discount": 0},
+                {"id": "gc_netflix_10", "name": "🎬 Netflix $10", "price": 949, "popular": False, "discount": 0},
+                {"id": "gc_spotify_10", "name": "🎵 Spotify $10", "price": 899, "popular": False, "discount": 0},
+            ]
+        },
+        {
+            "id": "topup",
+            "name": "💰 Wallet Top-Up",
+            "emoji": "💰",
+            "color": "success",
+            "description": "💰 Add balance to your wallet\nInstant auto-credit system!",
+            "input_label": "Amount will be auto-added",
+            "input_placeholder": "",
+            "products": [
+                {"id": "bal_50", "name": "➕ 50 ৳ Add Balance", "price": 50, "popular": False, "discount": 0},
+                {"id": "bal_100", "name": "➕ 100 ৳ Add Balance", "price": 100, "popular": False, "discount": 0},
+                {"id": "bal_200", "name": "➕ 200 ৳ Add Balance", "price": 200, "popular": True, "discount": 0},
+                {"id": "bal_500", "name": "➕ 500 ৳ Add Balance (🔥Free 25)", "price": 500, "popular": True, "discount": 25},
+                {"id": "bal_1000", "name": "➕ 1000 ৳ Add Balance (🔥Free 75)", "price": 1000, "popular": False, "discount": 75},
+                {"id": "bal_2000", "name": "➕ 2000 ৳ Add Balance (🔥Free 200)", "price": 2000, "popular": False, "discount": 200},
+                {"id": "bal_5000", "name": "➕ 5000 ৳ Add Balance (🔥Free 750)", "price": 5000, "popular": False, "discount": 750},
+            ]
+        }
+    ]
+}
+
+# ==================== DATABASE MANAGER ====================
+class Database:
+    """SQLite Database Manager with auto-migration"""
+    
+    def __init__(self, db_path: str = "data/topup_bot.db"):
+        self.db_path = db_path
+        Path("data").mkdir(exist_ok=True)
+        self._init_tables()
+    
+    def _get_conn(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+    
+    def _init_tables(self):
+        conn = self._get_conn()
         c = conn.cursor()
+        
+        # Users table
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                name TEXT DEFAULT 'User',
+                user_id INTEGER PRIMARY KEY,
+                username TEXT DEFAULT '',
+                first_name TEXT DEFAULT '',
                 balance REAL DEFAULT 0.0,
-                reward_points INTEGER DEFAULT 0,
-                rank TEXT DEFAULT '🥈 Silver Member',
+                total_spent REAL DEFAULT 0.0,
+                total_orders INTEGER DEFAULT 0,
+                join_date TEXT DEFAULT '',
+                last_active TEXT DEFAULT '',
+                is_banned INTEGER DEFAULT 0,
                 is_admin INTEGER DEFAULT 0,
-                is_active INTEGER DEFAULT 1,
-                last_login TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                referral_code TEXT DEFAULT '',
+                referred_by INTEGER DEFAULT 0
             )
         """)
+        
+        # Orders table
         c.execute("""
             CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id TEXT UNIQUE NOT NULL,
-                telegram_id TEXT NOT NULL,
-                product_id INTEGER,
-                product_name TEXT NOT NULL,
-                package TEXT NOT NULL,
-                price REAL NOT NULL,
-                user_details TEXT,
-                delivered_details TEXT,
-                status TEXT DEFAULT '⏳ Pending',
-                admin_note TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP
+                order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                product_name TEXT DEFAULT '',
+                category_name TEXT DEFAULT '',
+                amount REAL DEFAULT 0.0,
+                quantity INTEGER DEFAULT 1,
+                user_input TEXT DEFAULT '',
+                payment_method TEXT DEFAULT '',
+                transaction_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                order_date TEXT DEFAULT '',
+                delivered_date TEXT DEFAULT '',
+                delivery_file_id TEXT DEFAULT '',
+                delivery_note TEXT DEFAULT '',
+                admin_id INTEGER DEFAULT 0
             )
         """)
-        # NOTE: category is now a free‑text, admin‑defined value — not a
-        # fixed enum. delivery_type controls whether checkout asks the
-        # buyer for an ID (manual) or ships stock instantly (auto).
+        
+        # Transactions table
         c.execute("""
-            CREATE TABLE IF NOT EXISTS products (
+            CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                delivery_type TEXT DEFAULT 'manual',
-                icon TEXT DEFAULT '📦',
-                description TEXT,
-                options TEXT,
-                is_active INTEGER DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                user_id INTEGER NOT NULL,
+                amount REAL DEFAULT 0.0,
+                type TEXT DEFAULT '',
+                method TEXT DEFAULT '',
+                transaction_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'completed',
+                note TEXT DEFAULT '',
+                date TEXT DEFAULT ''
             )
         """)
+        
+        # Referrals table
         c.execute("""
-            CREATE TABLE IF NOT EXISTS categories (
+            CREATE TABLE IF NOT EXISTS referrals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                icon TEXT DEFAULT '📦',
-                display_order INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                user_id INTEGER NOT NULL,
+                referred_user_id INTEGER NOT NULL,
+                reward_amount REAL DEFAULT 0.0,
+                date TEXT DEFAULT ''
             )
         """)
+        
+        # Broadcasts table
         c.execute("""
-            CREATE TABLE IF NOT EXISTS deposit_requests (
+            CREATE TABLE IF NOT EXISTS broadcasts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                request_id TEXT UNIQUE NOT NULL,
-                telegram_id TEXT NOT NULL,
-                method TEXT NOT NULL,
-                amount REAL NOT NULL,
-                trx_id TEXT NOT NULL,
-                status TEXT DEFAULT '⏳ Pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                message TEXT DEFAULT '',
+                sent_count INTEGER DEFAULT 0,
+                failed_count INTEGER DEFAULT 0,
+                date TEXT DEFAULT ''
             )
         """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', 'OFF')")
-
-        # Stock table for auto‑delivery accounts (VPN / Proxy / YouTube / Streaming / etc.)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS account_stock (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER,
-                email TEXT NOT NULL,
-                password TEXT NOT NULL,
-                activation_key TEXT,
-                status TEXT DEFAULT 'available',
-                order_id TEXT,
-                sold_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        # seed default categories
-        c.execute("SELECT COUNT(*) FROM categories")
-        if c.fetchone()[0] == 0:
-            c.executemany(
-                "INSERT INTO categories (name, icon, display_order) VALUES (?,?,?)",
-                [
-                    ("Game Top-Up", "🎮", 1),
-                    ("VPN Premium", "🔐", 2),
-                    ("Proxy", "🌐", 3),
-                    ("YouTube Premium", "▶️", 4),
-                    ("Streaming", "🍿", 5),
-                ]
-            )
-
-        # seed products if empty
-        c.execute("SELECT COUNT(*) FROM products")
-        if c.fetchone()[0] == 0:
-            c.executemany(
-                "INSERT INTO products (name, category, delivery_type, icon, description, options) VALUES (?,?,?,?,?,?)",
-                [
-                    ("Free Fire Diamonds", "Game Top-Up", "manual", "💎",
-                     "ফ্রি ফায়ার ডায়মন্ড টপ-আপ",
-                     json.dumps([
-                         {"amount": "💎 100 Diamonds", "price": 100, "valid_days": 0},
-                         {"amount": "💎 310 Diamonds", "price": 300, "valid_days": 0},
-                         {"amount": "💎 520 Diamonds", "price": 500, "valid_days": 0},
-                     ])),
-                    ("Netflix Premium", "Streaming", "auto", "🎬",
-                     "নেটফ্লিক্স প্রিমিয়াম সাবস্ক্রিপশন",
-                     json.dumps([
-                         {"amount": "🎬 1 Month Screen", "price": 200, "valid_days": 30},
-                         {"amount": "🎬 3 Months Premium", "price": 500, "valid_days": 90},
-                     ])),
-                    ("Nord VPN", "VPN Premium", "auto", "🔐",
-                     "নর্ড ভিপিএন প্রিমিয়াম অ্যাকাউন্ট",
-                     json.dumps([
-                         {"amount": "🔐 1 Month", "price": 150, "valid_days": 30},
-                         {"amount": "🔐 3 Months", "price": 400, "valid_days": 90},
-                     ])),
-                    ("World's Best VPN Proxy", "Proxy", "auto", "🌐",
-                     "পৃথিবীর সবচেয়ে দ্রুত ও নিরাপদ ভিপিএন প্রক্সি সার্ভিস",
-                     json.dumps([
-                         {"amount": "🌐 1 Month", "price": 180, "valid_days": 30},
-                         {"amount": "🌐 3 Months", "price": 450, "valid_days": 90},
-                     ])),
-                    ("YouTube Premium", "YouTube Premium", "auto", "▶️",
-                     "ইউটিউব প্রিমিয়াম — বিজ্ঞাপনমুক্ত + ব্যাকগ্রাউন্ড প্লে",
-                     json.dumps([
-                         {"amount": "▶️ 1 Month", "price": 120, "valid_days": 30},
-                         {"amount": "▶️ 3 Months", "price": 320, "valid_days": 90},
-                         {"amount": "▶️ 1 Year", "price": 900, "valid_days": 365},
-                     ])),
-                    ("Crunchyroll Premium", "Streaming", "auto", "🍿",
-                     "ক্রাঞ্চিরোল প্রিমিয়াম অ্যানিমে স্ট্রিমিং",
-                     json.dumps([
-                         {"amount": "🍿 1 Month", "price": 100, "valid_days": 30},
-                         {"amount": "🍿 3 Months", "price": 250, "valid_days": 90},
-                     ])),
-                ]
-            )
-    logger.info("🌟 Database ready.")
-
-def get_user(telegram_id: str) -> Optional[sqlite3.Row]:
-    with db() as conn:
-        return conn.execute("SELECT * FROM users WHERE telegram_id = ?", (str(telegram_id),)).fetchone()
-
-def update_balance(telegram_id: str, amount: float):
-    with db() as conn:
-        conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (amount, str(telegram_id)))
-
-def is_maintenance() -> bool:
-    with db() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = 'maintenance_mode'").fetchone()
-        return row and row["value"] == "ON"
-
-def is_admin(user_row) -> bool:
-    return user_row and (int(user_row["telegram_id"]) == Config.ADMIN_USER_ID or user_row["is_admin"] == 1)
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(("SKY_TOPUP_2024_v2" + password).encode()).hexdigest()
-
-def get_active_categories():
-    """Only returns categories that currently have at least one active product —
-    so the shop menu is always 100% in sync with what admins have added."""
-    with db() as conn:
-        rows = conn.execute("""
-            SELECT c.name AS name, c.icon AS icon, COUNT(p.id) AS cnt
-            FROM categories c
-            JOIN products p ON p.category = c.name AND p.is_active = 1
-            GROUP BY c.name
-            ORDER BY c.display_order ASC, c.name ASC
-        """).fetchall()
-    return rows
-
-def get_all_categories():
-    with db() as conn:
-        return conn.execute("SELECT * FROM categories ORDER BY display_order ASC, name ASC").fetchall()
-
-def ensure_category(name: str, icon: str = "📦"):
-    with db() as conn:
-        exists = conn.execute("SELECT id FROM categories WHERE name = ?", (name,)).fetchone()
-        if not exists:
-            nxt = conn.execute("SELECT COALESCE(MAX(display_order),0)+1 FROM categories").fetchone()[0]
-            conn.execute("INSERT INTO categories (name, icon, display_order) VALUES (?,?,?)", (name, icon, nxt))
-
-# ─────────────────────────────────────────────
-# 🎨 PREMIUM UI  (single‑column, scroll‑friendly layout)
-# ─────────────────────────────────────────────
-class UIBuilder:
-    @staticmethod
-    def safe_text(text: str) -> str:
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    @staticmethod
-    def main_menu(user_row=None) -> InlineKeyboardMarkup:
-        keyboard = [
-            [InlineKeyboardButton("🛍️ Buy Products", callback_data="shop")],
-            [InlineKeyboardButton("💳 My Balance", callback_data="balance")],
-            [InlineKeyboardButton("➕ Instant Recharge", callback_data="recharge")],
-            [InlineKeyboardButton("📦 Order Track", callback_data="orders")],
-            [InlineKeyboardButton("👤 My Profile", callback_data="profile")],
-            [InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
-            [InlineKeyboardButton("💬 Help & Support", callback_data="help")],
-        ]
-        if user_row and is_admin(user_row):
-            keyboard.append([InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
-        return InlineKeyboardMarkup(keyboard)
-
-    @staticmethod
-    def back_button(callback_data: str = "back_main") -> InlineKeyboardMarkup:
-        return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Main Menu", callback_data=callback_data)]])
-
-async def smart_reply(update: Update, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
-    kwargs = {"text": text, "parse_mode": parse_mode, "reply_markup": reply_markup}
-    if update.callback_query:
-        await update.callback_query.message.reply_text(**kwargs)
-    elif update.message:
-        await update.message.reply_text(**kwargs)
-
-async def edit_or_reply(update: Update, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
-    kwargs = {"text": text, "parse_mode": parse_mode, "reply_markup": reply_markup}
-    if update.callback_query:
-        try:
-            await update.callback_query.edit_message_text(**kwargs)
-            return
-        except Exception:
-            pass
-    await smart_reply(update, text, reply_markup, parse_mode)
-
-# ─────────────────────────────────────────────
-# 🔹 CONVERSATION STATES
-# ─────────────────────────────────────────────
-REG_PASSWORD, REG_CONFIRM_PASSWORD = range(2)
-ORDER_DETAILS_STATE = 100
-ADD_MONEY_AMOUNT, ADD_MONEY_TRX = range(10, 12)
-ADMIN_SET_BAL_ID, ADMIN_SET_BAL_AMT = range(20, 22)
-(ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NEWCAT_NAME, ADMIN_ADD_PROD_NEWCAT_ICON,
- ADMIN_ADD_PROD_DELIVERY, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_DESC,
- ADMIN_ADD_PROD_OPTS) = range(30, 37)
-ADMIN_ADD_STOCK_PROD, ADMIN_ADD_STOCK_EMAIL, ADMIN_ADD_STOCK_PASSWORD, ADMIN_ADD_STOCK_ACTIVATION = range(40, 44)
-ADMIN_RESTORE_DB_STATE = 50
-ADMIN_BROADCAST_MSG = 60
-ADMIN_SEARCH_USER = 70
-
-DEPOSIT_AMOUNTS = [50, 100, 200, 500, 1000]
-
-def deposit_amount_keyboard() -> InlineKeyboardMarkup:
-    kb = [[InlineKeyboardButton(f"৳{a}", callback_data=f"depamt_{a}")] for a in DEPOSIT_AMOUNTS]
-    kb.append([InlineKeyboardButton("✏️ Custom Amount", callback_data="depamt_custom")])
-    kb.append([InlineKeyboardButton("⬅️ Cancel", callback_data="back_main")])
-    return InlineKeyboardMarkup(kb)
-
-# ─────────────────────────────────────────────
-# 👋 START & REGISTRATION
-# ─────────────────────────────────────────────
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_row = get_user(str(user.id))
-    if is_maintenance() and not (user_row and is_admin(user_row)):
-        await update.message.reply_text("⚠️ <b>System Maintenance</b>\n\nWe'll be back shortly.", parse_mode=ParseMode.HTML)
-        return ConversationHandler.END
-    if user_row:
-        with db() as conn:
-            conn.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE telegram_id = ?", (str(user.id),))
-        welcome = (
-            "🌌 <b>✨ SKY TOPUP · PREMIUM STORE ✨</b>\n"
-            "┏━━━━━━━━━━━━━━━━━━━━━━┓\n"
-            f"┃ 👋 স্বাগতম, <b>{UIBuilder.safe_text(user_row['name'])}</b>\n"
-            "┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-            f"💵 <b>ব্যালেন্স:</b> ৳{user_row['balance']:,.2f}\n"
-            f"🏅 <b>র‍্যাংক:</b> {user_row['rank']}\n"
-            f"🎁 <b>পয়েন্ট:</b> {user_row['reward_points']} pts\n\n"
-            "🛍️ VPN · Proxy · YouTube Premium · Streaming · Game Top-Up\n"
-            "সবকিছু এক জায়গায়, ইনস্ট্যান্ট ডেলিভারি সহ ⚡\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "👇 নিচ থেকে একটি অপশন বেছে নিন:"
-        )
-        await smart_reply(update, welcome, UIBuilder.main_menu(user_row))
-        return ConversationHandler.END
-    welcome = (
-        "🌌 <b>✨ SKY TOPUP · PREMIUM STORE ✨</b>\n"
-        "┏━━━━━━━━━━━━━━━━━━━━━━┓\n"
-        f"┃ হ্যালো, <b>{UIBuilder.safe_text(user.first_name or 'User')}</b> 👋\n"
-        "┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-        "🔐 শুরু করতে একটি নিরাপদ পাসওয়ার্ড দিন\n"
-        "<i>(কমপক্ষে ৬ ক্যারেক্টার)</i>\n\n"
-        "👉 <b>এখন আপনার পাসওয়ার্ড টাইপ করুন:</b>"
-    )
-    await update.message.reply_text(welcome, parse_mode=ParseMode.HTML)
-    return REG_PASSWORD
-
-async def reg_receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    password = update.message.text.strip()
-    if len(password) < Config.MIN_PASSWORD_LENGTH:
-        await update.message.reply_text("❌ Too short! Please enter at least 6 characters:")
-        return REG_PASSWORD
-    context.user_data["reg_password"] = password
-    await update.message.reply_text("🔁 Confirm your password:")
-    return REG_CONFIRM_PASSWORD
-
-async def reg_confirm_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text.strip() != context.user_data.get("reg_password"):
-        await update.message.reply_text("❌ Passwords don't match! Start again:")
-        return REG_PASSWORD
-    user = update.effective_user
-    tid = str(user.id)
-    name = user.first_name or "User"
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO users (telegram_id, password, name, balance) VALUES (?, ?, ?, 10.0)",
-            (tid, hash_password(context.user_data["reg_password"]), name)
-        )
-    context.user_data.clear()
-    await update.message.reply_text("🎉 <b>Registration complete!</b> You got ৳10 as a welcome gift.", parse_mode=ParseMode.HTML)
-    user_row = get_user(tid)
-    await update.message.reply_text("✨ Use the menu:", reply_markup=UIBuilder.main_menu(user_row))
-    return ConversationHandler.END
-
-async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("❌ Cancelled.")
-    return ConversationHandler.END
-
-# ─────────────────────────────────────────────
-# 🛒 SHOP & ORDER — fully dynamic category tree
-# ─────────────────────────────────────────────
-async def show_categories_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cats = get_active_categories()
-    if not cats:
-        await edit_or_reply(update, "⚠️ এখনো কোনো প্রোডাক্ট যোগ করা হয়নি।", UIBuilder.back_button())
-        return
-    keyboard = [
-        [InlineKeyboardButton(f"{c['icon']} {c['name']}  ({c['cnt']})", callback_data=f"category_{c['name']}")]
-        for c in cats
-    ]
-    keyboard.append([InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")])
-    await edit_or_reply(
-        update,
-        "📂 <b>প্রোডাক্ট ক্যাটাগরি</b>\n━━━━━━━━━━━━━━━━━━━━\nযা কিনতে চান সেটি বেছে নিন 👇",
-        InlineKeyboardMarkup(keyboard)
-    )
-
-async def show_products_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, category: str):
-    with db() as conn:
-        products = conn.execute("SELECT * FROM products WHERE category = ? AND is_active = 1", (category,)).fetchall()
-    if not products:
-        await edit_or_reply(update, "⚠️ No products found.", UIBuilder.back_button("shop"))
-        return
-    keyboard = [[InlineKeyboardButton(f"{p['icon']} {p['name']}", callback_data=f"product_{p['id']}")] for p in products]
-    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="shop")])
-    await edit_or_reply(update, f"📦 <b>{UIBuilder.safe_text(category)}</b>\n━━━━━━━━━━━━━━━━━━━━\nProduct বেছে নিন:", InlineKeyboardMarkup(keyboard))
-
-async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int):
-    with db() as conn:
-        product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not product:
-        await edit_or_reply(update, "❌ Product not found!", UIBuilder.back_button("shop"))
-        return
-    options = json.loads(product["options"])
-    keyboard = [
-        [InlineKeyboardButton(f"{opt['amount']} ➔ ৳{opt['price']}", callback_data=f"package_{product_id}_{idx}")]
-        for idx, opt in enumerate(options)
-    ]
-    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"category_{product['category']}")])
-    await edit_or_reply(
-        update,
-        f"⚡ <b>{product['icon']} {product['name']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📝 {product['description']}\n\n"
-        f"একটি প্যাকেজ বেছে নিন:",
-        InlineKeyboardMarkup(keyboard)
-    )
-
-async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    parts = query.data.split("_")
-    product_id, package_idx = int(parts[1]), int(parts[2])
-    with db() as conn:
-        product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    options = json.loads(product["options"])
-    selected_package = options[package_idx]
-    user_row = get_user(str(update.effective_user.id))
-    price = selected_package["price"]
-    if user_row["balance"] < price:
-        await query.message.reply_text(
-            f"❌ <b>Insufficient balance</b>\n"
-            f"Your balance: ৳{user_row['balance']:.2f}\n"
-            f"Needed: ৳{price:.2f}\n\n"
-            f"➕ Recharge your wallet first.",
-            parse_mode=ParseMode.HTML
-        )
-        return ConversationHandler.END
-    context.user_data["order_product_id"] = product_id
-    context.user_data["order_product_name"] = product["name"]
-    context.user_data["order_package"] = selected_package
-    context.user_data["order_delivery_type"] = product["delivery_type"]
-
-    if product["delivery_type"] == "manual":
-        await query.message.reply_text(
-            f"🛒 <b>Confirm Checkout</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📦 {product['name']}\n"
-            f"📎 {selected_package['amount']}\n"
-            f"💰 Price: ৳{price}\n\n"
-            f"👉 Enter your <b>Game ID / UID</b> (min 3 chars):",
-            parse_mode=ParseMode.HTML
-        )
-        return ORDER_DETAILS_STATE
-    else:  # auto‑delivery – no user input needed, place order directly
-        return await place_order_for_digital_product(update, context)
-
-async def place_order_for_digital_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    product_id = context.user_data["order_product_id"]
-    product_name = context.user_data["order_product_name"]
-    package = context.user_data["order_package"]
-    price = package["price"]
-    tid = str(update.effective_user.id)
-    order_id = f"SKY-{int(datetime.now().timestamp())}-{secrets.token_hex(2).upper()}"
-
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO orders (order_id, telegram_id, product_id, product_name, package, price, user_details, status) VALUES (?,?,?,?,?,?,?,'⏳ Pending')",
-            (order_id, tid, product_id, product_name, package["amount"], price, "")
-        )
-        conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, tid))
-    delivery_type = context.user_data.get("order_delivery_type", "auto")
-    context.user_data.clear()
-
-    await smart_reply(update,
-        f"🎉 <b>Order Placed!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 <code>{order_id}</code>\n"
-        f"💰 Deducted: ৳{price}\n"
-        f"⚡ Admin will process within 5–15 mins."
-    )
-    try:
-        await update.effective_chat.bot.send_message(
-            Config.ADMIN_USER_ID,
-            f"🔔 <b>New Order</b>\n"
-            f"👤 {tid}\n"
-            f"🆔 <code>{order_id}</code>\n"
-            f"📦 {product_name} ({package['amount']})\n"
-            f"Delivery: {delivery_type}",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}")],
-                [InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
-            ])
-        )
-    except Exception as e:
-        logger.error(f"Admin notify: {e}")
-    return ConversationHandler.END
-
-async def receive_order_details_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    details = update.message.text.strip()
-    if len(details) < 3:
-        await update.message.reply_text("❌ Too short! Provide a valid ID:")
-        return ORDER_DETAILS_STATE
-    context.user_data["order_user_details"] = details
-
-    product_id = context.user_data["order_product_id"]
-    product_name = context.user_data["order_product_name"]
-    package = context.user_data["order_package"]
-    price = package["price"]
-    tid = str(update.effective_user.id)
-    order_id = f"SKY-{int(datetime.now().timestamp())}-{secrets.token_hex(2).upper()}"
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO orders (order_id, telegram_id, product_id, product_name, package, price, user_details, status) VALUES (?,?,?,?,?,?,?,'⏳ Pending')",
-            (order_id, tid, product_id, product_name, package["amount"], price, details)
-        )
-        conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, tid))
-    context.user_data.clear()
-    await update.message.reply_text(
-        f"🎉 <b>Order Placed!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 <code>{order_id}</code>\n"
-        f"💰 Deducted: ৳{price}\n"
-        f"⚡ Admin will process within 5–15 mins.",
-        parse_mode=ParseMode.HTML
-    )
-    try:
-        await update.effective_chat.bot.send_message(
-            Config.ADMIN_USER_ID,
-            f"🔔 <b>New Order</b>\n"
-            f"👤 {tid}\n"
-            f"🆔 <code>{order_id}</code>\n"
-            f"📦 {product_name} ({package['amount']})\n"
-            f"ℹ️ UID: <code>{details}</code>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}")],
-                [InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
-            ])
-        )
-    except Exception as e:
-        logger.error(f"Admin notify: {e}")
-    return ConversationHandler.END
-
-# ─────────────────────────────────────────────
-# 💰 DEPOSIT (single‑column preset buttons)
-# ─────────────────────────────────────────────
-async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📱 bKash", callback_data="recharge_bkash")],
-        [InlineKeyboardButton("📱 Nagad", callback_data="recharge_nagad")],
-        [InlineKeyboardButton("📱 Rocket", callback_data="recharge_rocket")],
-        [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")]
-    ]
-    await edit_or_reply(update, "💳 <b>Instant Recharge</b>\n━━━━━━━━━━━━━━━\nমেথড বেছে নিন:", InlineKeyboardMarkup(keyboard))
-
-async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, method: str):
-    numbers = {"bkash": Config.BKASH_NUMBER, "nagad": Config.NAGAD_NUMBER, "rocket": Config.ROCKET_NUMBER}
-    context.user_data["recharge_method"] = method
-    await edit_or_reply(
-        update,
-        f"💳 <b>{method.upper()}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"এই নাম্বারে টাকা পাঠান: <code>{numbers[method]}</code>\n"
-        f"তারপর যত টাকা পাঠিয়েছেন সেই এমাউন্ট বেছে নিন:",
-        deposit_amount_keyboard()
-    )
-    return ADD_MONEY_AMOUNT
-
-async def deposit_amount_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data.startswith("depamt_"):
-        amt_str = data.split("_")[1]
-        if amt_str == "custom":
-            await query.message.reply_text("💬 যত টাকা পাঠিয়েছেন সেটি লিখুন (৳):")
-            return ADD_MONEY_AMOUNT
-        amount = float(amt_str)
-        context.user_data["recharge_amount"] = amount
-        await query.message.reply_text("🔑 এবার <b>Transaction ID (TrxID)</b> পাঠান:", parse_mode=ParseMode.HTML)
-        return ADD_MONEY_TRX
-    return ADD_MONEY_AMOUNT
-
-async def add_money_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        amount = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❌ Numbers only! Try again or choose a preset.")
-        return ADD_MONEY_AMOUNT
-    if amount < Config.MIN_DEPOSIT:
-        await update.message.reply_text(f"❌ Minimum ৳{Config.MIN_DEPOSIT}. Try again:")
-        return ADD_MONEY_AMOUNT
-    context.user_data["recharge_amount"] = amount
-    await update.message.reply_text("🔑 এবার <b>Transaction ID (TrxID)</b> পাঠান:", parse_mode=ParseMode.HTML)
-    return ADD_MONEY_TRX
-
-async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    trx = update.message.text.strip()
-    if len(trx) < 5:
-        await update.message.reply_text("❌ Invalid TrxID! Minimum 5 characters:")
-        return ADD_MONEY_TRX
-    method = context.user_data.get("recharge_method")
-    amount = context.user_data.get("recharge_amount")
-    tid = str(update.effective_user.id)
-    req_id = f"DEP-{int(datetime.now().timestamp())}"
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO deposit_requests (request_id, telegram_id, method, amount, trx_id) VALUES (?,?,?,?,?)",
-            (req_id, tid, method, amount, trx)
-        )
-    context.user_data.clear()
-    await update.message.reply_text(
-        f"✅ <b>Deposit request submitted!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 <code>{req_id}</code>\n"
-        f"💳 {method.upper()}\n"
-        f"💰 ৳{amount:.2f}\n"
-        f"🔑 <code>{trx}</code>\n\n"
-        f"⚡ Verification in 2–5 minutes.",
-        parse_mode=ParseMode.HTML
-    )
-    try:
-        await update.effective_chat.bot.send_message(
-            Config.ADMIN_USER_ID,
-            f"🔔 <b>New Deposit</b>\n"
-            f"👤 {tid}\n"
-            f"💳 {method.upper()}  |  ৳{amount:.2f}\n"
-            f"🔑 <code>{trx}</code>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{req_id}")],
-                [InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{req_id}")]
-            ])
-        )
-    except Exception as e:
-        logger.error(f"Admin notify: {e}")
-    return ConversationHandler.END
-
-# ─────────────────────────────────────────────
-# 🛡️ ADMIN PANEL & ORDER PROCESSING
-# ─────────────────────────────────────────────
-async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))):
-        await edit_or_reply(update, "❌ Access denied.")
-        return
-    with db() as conn:
-        users_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        pend_orders = conn.execute("SELECT COUNT(*) FROM orders WHERE status='⏳ Pending'").fetchone()[0]
-        pend_deps = conn.execute("SELECT COUNT(*) FROM deposit_requests WHERE status='⏳ Pending'").fetchone()[0]
-        mmode = conn.execute("SELECT value FROM settings WHERE key='maintenance_mode'").fetchone()["value"]
-    mm_btn = "🟢 Turn ON Maintenance" if mmode == "OFF" else "🔴 Turn OFF Maintenance"
-    keyboard = [
-        [InlineKeyboardButton("📊 Orders", callback_data="adm_view_orders")],
-        [InlineKeyboardButton("💰 Deposits", callback_data="adm_view_deposits")],
-        [InlineKeyboardButton("👤 Edit Balance", callback_data="adm_balance_set")],
-        [InlineKeyboardButton("📦 Add Product", callback_data="adm_product_add")],
-        [InlineKeyboardButton("🗂️ Manage Categories", callback_data="adm_view_categories")],
-        [InlineKeyboardButton("➕ Add Stock", callback_data="adm_add_stock")],
-        [InlineKeyboardButton("🗄️ Stock List", callback_data="adm_view_stock")],
-        [InlineKeyboardButton("📤 Backup DB", callback_data="adm_backup_db")],
-        [InlineKeyboardButton("📥 Restore DB", callback_data="adm_restore_db")],
-        [InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast")],
-        [InlineKeyboardButton("🔍 Search User", callback_data="adm_search_user")],
-        [InlineKeyboardButton(mm_btn, callback_data="adm_toggle_maintenance")],
-        [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")]
-    ]
-    await edit_or_reply(
-        update,
-        f"🛠️ <b>Admin Dashboard</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 Users: {users_count}\n"
-        f"⏳ Orders: {pend_orders}\n"
-        f"💵 Pending: {pend_deps}\n"
-        f"⚙️ Maintenance: <b>{mmode}</b>",
-        InlineKeyboardMarkup(keyboard)
-    )
-
-async def show_categories_admin_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cats = get_all_categories()
-    if not cats:
-        await update.callback_query.message.reply_text("📭 কোনো ক্যাটাগরি নেই।")
-        return
-    with db() as conn:
-        lines = ["🗂️ <b>All Categories</b>\n━━━━━━━━━━━━━━━━━━━━"]
-        for c in cats:
-            cnt = conn.execute("SELECT COUNT(*) FROM products WHERE category=? AND is_active=1", (c["name"],)).fetchone()[0]
-            lines.append(f"{c['icon']} <b>{UIBuilder.safe_text(c['name'])}</b> — {cnt} active product(s)")
-    await update.callback_query.message.reply_text(
-        "\n".join(lines) + "\n\n➕ নতুন প্রোডাক্ট যোগ করার সময় নতুন ক্যাটাগরিও তৈরি করা যায়।",
-        parse_mode=ParseMode.HTML
-    )
-
-async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-    if not is_admin(get_user(str(update.effective_user.id))):
-        await query.answer("❌ Unauthorized.", show_alert=True)
-        return
-    await query.answer()
-
-    if data == "adm_toggle_maintenance":
-        new = "OFF" if is_maintenance() else "ON"
-        with db() as conn:
-            conn.execute("UPDATE settings SET value = ? WHERE key = 'maintenance_mode'", (new,))
-        await show_admin_panel_ui(update, context)
-
-    elif data == "adm_view_categories":
-        await show_categories_admin_ui(update, context)
-
-    elif data == "adm_backup_db":
-        file = f"backup_{int(datetime.now().timestamp())}.db"
-        try:
-            src = sqlite3.connect(Config.DB_PATH)
-            dst = sqlite3.connect(file)
-            with dst:
-                src.backup(dst)
-            src.close(); dst.close()
-            with open(file, "rb") as f:
-                await context.bot.send_document(Config.ADMIN_USER_ID, f,
-                    filename="skytopup_backup.db",
-                    caption="📂 <b>Database Backup</b>")
-            os.remove(file)
-            await query.message.reply_text("✅ Backup sent to your DM.")
-        except Exception as e:
-            await query.message.reply_text(f"❌ Backup failed: {e}")
-
-    elif data == "adm_view_orders":
-        with db() as conn:
-            orders = conn.execute("SELECT * FROM orders WHERE status='⏳ Pending' LIMIT 10").fetchall()
-        if not orders:
-            await query.message.reply_text("🟢 No pending orders.")
-            return
-        for o in orders:
-            await query.message.reply_text(
-                f"🆔 <code>{o['order_id']}</code>\n"
-                f"👤 {o['telegram_id']}  |  📦 {o['product_name']} ({o['package']})\n"
-                f"ℹ️ {o['user_details'] or 'No details'}",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{o['order_id']}")],
-                    [InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{o['order_id']}")]
-                ])
-            )
-    elif data == "adm_view_deposits":
-        with db() as conn:
-            deps = conn.execute("SELECT * FROM deposit_requests WHERE status='⏳ Pending' LIMIT 10").fetchall()
-        if not deps:
-            await query.message.reply_text("🟢 No pending deposits.")
-            return
-        for d in deps:
-            await query.message.reply_text(
-                f"🆔 <code>{d['request_id']}</code>\n"
-                f"👤 {d['telegram_id']}  |  💳 {d['method']}  |  ৳{d['amount']}\n"
-                f"🔑 <code>{d['trx_id']}</code>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['request_id']}")],
-                    [InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['request_id']}")]
-                ])
-            )
-    elif data == "adm_view_stock":
-        with db() as conn:
-            stock = conn.execute("SELECT a.*, p.name FROM account_stock a JOIN products p ON a.product_id = p.id WHERE a.status='available' LIMIT 20").fetchall()
-        if not stock:
-            await query.message.reply_text("📭 No stock available.")
-            return
-        msg = "🗄️ <b>Available Stock</b>\n"
-        for s in stock:
-            msg += f"• {s['name']} | {s['email']} | status: {s['status']}\n"
-        await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
-
-    elif data.startswith("adm_ord_approve_"):
-        oid = data.replace("adm_ord_approve_", "")
-        await process_order_approval(update, context, oid, approve=True)
-    elif data.startswith("adm_ord_reject_"):
-        oid = data.replace("adm_ord_reject_", "")
-        await process_order_approval(update, context, oid, approve=False)
-
-    elif data.startswith("adm_dep_approve_"):
-        rid = data.replace("adm_dep_approve_", "")
-        await process_deposit(update, context, rid, approve=True)
-    elif data.startswith("adm_dep_reject_"):
-        rid = data.replace("adm_dep_reject_", "")
-        await process_deposit(update, context, rid, approve=False)
-
-    elif data == "adm_broadcast":
-        await query.message.reply_text("📢 Type the message to broadcast:")
-        return ADMIN_BROADCAST_MSG
-    elif data == "adm_search_user":
-        await query.message.reply_text("🔍 Enter Telegram ID of the user:")
-        return ADMIN_SEARCH_USER
-
-async def process_order_approval(update: Update, context: ContextTypes.DEFAULT_TYPE, order_id: str, approve: bool):
-    with db() as conn:
-        order = conn.execute("SELECT * FROM orders WHERE order_id=? AND status='⏳ Pending'", (order_id,)).fetchone()
-        if not order:
-            await edit_or_reply(update, f"⚠️ Order {order_id} already processed.")
-            return
-        if approve:
-            conn.execute("UPDATE orders SET status='✅ Completed' WHERE order_id=?", (order_id,))
-            await edit_or_reply(update, f"✅ Order {order_id} completed.")
-            if order["product_id"]:
-                product = conn.execute("SELECT delivery_type FROM products WHERE id=?", (order["product_id"],)).fetchone()
-                if product and product["delivery_type"] == "auto":
-                    stock = conn.execute("SELECT * FROM account_stock WHERE product_id=? AND status='available' LIMIT 1", (order["product_id"],)).fetchone()
-                    if stock:
-                        conn.execute("UPDATE account_stock SET status='sold', order_id=?, sold_at=CURRENT_TIMESTAMP WHERE id=?",
-                                     (order_id, stock["id"]))
-                        options = json.loads(conn.execute("SELECT options FROM products WHERE id=?", (order["product_id"],)).fetchone()["options"])
-                        pkg = next((o for o in options if o["amount"] == order["package"]), None)
-                        valid_days = pkg.get("valid_days", 30) if pkg else 30
-                        expiry_date = (datetime.now() + timedelta(days=valid_days)).strftime("%d %b %Y")
-                        details_msg = (
-                            f"📧 <b>Email:</b> <code>{stock['email']}</code>\n"
-                            f"🔑 <b>Password:</b> <code>{stock['password']}</code>"
-                        )
-                        if stock["activation_key"]:
-                            details_msg += f"\n🔐 <b>Activation Key:</b> <code>{stock['activation_key']}</code>"
-                        details_msg += f"\n📅 <b>Expires:</b> {expiry_date}"
-                        conn.execute("UPDATE orders SET delivered_details=? WHERE order_id=?", (details_msg, order_id))
-                        try:
-                            await context.bot.send_message(
-                                order["telegram_id"],
-                                f"🎉 <b>Your order has been delivered!</b>\n"
-                                f"━━━━━━━━━━━━━━━━━━━━\n"
-                                f"{details_msg}\n\n"
-                                f"Enjoy your premium service! ✨",
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as e:
-                            logger.error(f"Delivery notify failed: {e}")
-                    else:
-                        await context.bot.send_message(
-                            Config.ADMIN_USER_ID,
-                            f"⚠️ <b>No stock available</b> for order {order_id} ({order['product_name']}). Please add stock manually.",
-                            parse_mode=ParseMode.HTML
-                        )
+        
+        conn.commit()
+        conn.close()
+    
+    # ========== USER METHODS ==========
+    def add_user(self, user_id: int, username: str = "", first_name: str = ""):
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO users (user_id, username, first_name, join_date, last_active)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, username, first_name, datetime.now().isoformat(), datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+    
+    def get_user(self, user_id: int) -> Optional[sqlite3.Row]:
+        conn = self._get_conn()
+        c = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        user = c.fetchone()
+        conn.close()
+        return user
+    
+    def update_user_activity(self, user_id: int):
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET last_active = ? WHERE user_id = ?",
+                    (datetime.now().isoformat(), user_id))
+        conn.commit()
+        conn.close()
+    
+    def update_balance(self, user_id: int, amount: float):
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        conn.commit()
+        conn.close()
+    
+    def set_ban(self, user_id: int, ban: bool = True):
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (1 if ban else 0, user_id))
+        conn.commit()
+        conn.close()
+    
+    def get_all_users(self) -> List[sqlite3.Row]:
+        conn = self._get_conn()
+        c = conn.execute("SELECT * FROM users ORDER BY join_date DESC")
+        users = c.fetchall()
+        conn.close()
+        return users
+    
+    # ========== ORDER METHODS ==========
+    def add_order(self, user_id: int, product_name: str, category_name: str,
+                  amount: float, quantity: int, user_input: str,
+                  payment_method: str, transaction_id: str) -> int:
+        conn = self._get_conn()
+        c = conn.execute("""
+            INSERT INTO orders (user_id, product_name, category_name, amount,
+                               quantity, user_input, payment_method,
+                               transaction_id, order_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, product_name, category_name, amount, quantity,
+              user_input, payment_method, transaction_id,
+              datetime.now().isoformat()))
+        order_id = c.lastrowid
+        
+        conn.execute("""
+            UPDATE users SET total_orders = total_orders + 1,
+                            total_spent = total_spent + ?
+            WHERE user_id = ?
+        """, (amount, user_id))
+        
+        conn.commit()
+        conn.close()
+        return order_id
+    
+    def get_order(self, order_id: int) -> Optional[sqlite3.Row]:
+        conn = self._get_conn()
+        c = conn.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,))
+        order = c.fetchone()
+        conn.close()
+        return order
+    
+    def get_user_orders(self, user_id: int, limit: int = 20) -> List[sqlite3.Row]:
+        conn = self._get_conn()
+        c = conn.execute("""
+            SELECT * FROM orders WHERE user_id = ?
+            ORDER BY order_date DESC LIMIT ?
+        """, (user_id, limit))
+        orders = c.fetchall()
+        conn.close()
+        return orders
+    
+    def get_all_orders(self, status: Optional[str] = None, limit: int = 50) -> List[sqlite3.Row]:
+        conn = self._get_conn()
+        if status:
+            c = conn.execute("""
+                SELECT * FROM orders WHERE status = ?
+                ORDER BY order_date DESC LIMIT ?
+            """, (status, limit))
         else:
-            conn.execute("UPDATE orders SET status='❌ Rejected' WHERE order_id=?", (order_id,))
-            conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (order["price"], order["telegram_id"]))
-            await edit_or_reply(update, f"❌ Order {order_id} rejected (refunded).")
-            try:
-                await context.bot.send_message(order["telegram_id"], f"❌ Order <code>{order_id}</code> rejected. ৳{order['price']} refunded.", parse_mode=ParseMode.HTML)
-            except Exception:
-                pass
-
-async def process_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE, request_id: str, approve: bool):
-    with db() as conn:
-        dep = conn.execute("SELECT * FROM deposit_requests WHERE request_id=? AND status='⏳ Pending'", (request_id,)).fetchone()
-        if not dep:
-            await edit_or_reply(update, f"⚠️ Request {request_id} already processed.")
-            return
-        if approve:
-            conn.execute("UPDATE deposit_requests SET status='✅ Approved' WHERE request_id=?", (request_id,))
-            conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (dep["amount"], dep["telegram_id"]))
-            await edit_or_reply(update, f"✅ Deposit {request_id} approved.")
-            try:
-                await context.bot.send_message(dep["telegram_id"], f"💰 ৳{dep['amount']} added to your wallet.")
-            except Exception:
-                pass
+            c = conn.execute("""
+                SELECT * FROM orders ORDER BY order_date DESC LIMIT ?
+            """, (limit,))
+        orders = c.fetchall()
+        conn.close()
+        return orders
+    
+    def update_order_status(self, order_id: int, status: str,
+                             file_id: str = "", note: str = ""):
+        conn = self._get_conn()
+        if status == "delivered":
+            conn.execute("""
+                UPDATE orders SET status = ?, delivery_file_id = ?,
+                                 delivery_note = ?, delivered_date = ?
+                WHERE order_id = ?
+            """, (status, file_id, note, datetime.now().isoformat(), order_id))
         else:
-            conn.execute("UPDATE deposit_requests SET status='❌ Rejected' WHERE request_id=?", (request_id,))
-            await edit_or_reply(update, f"❌ Deposit {request_id} rejected.")
-            try:
-                await context.bot.send_message(dep["telegram_id"], "❌ Your recharge was rejected. Contact support.")
-            except Exception:
-                pass
+            conn.execute("UPDATE orders SET status = ? WHERE order_id = ?",
+                        (status, order_id))
+        conn.commit()
+        conn.close()
+    
+    # ========== TRANSACTION METHODS ==========
+    def add_transaction(self, user_id: int, amount: float, type_: str,
+                        method: str, trx_id: str, note: str = ""):
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT INTO transactions (user_id, amount, type, method,
+                                     transaction_id, note, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, amount, type_, method, trx_id, note,
+              datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+    
+    # ========== STATISTICS ==========
+    def get_stats(self) -> Dict[str, Any]:
+        conn = self._get_conn()
+        stats = {}
+        
+        c = conn.execute("SELECT COUNT(*) as count, COALESCE(SUM(balance),0) as total FROM users")
+        row = c.fetchone()
+        stats['total_users'] = row[0]
+        stats['total_wallet'] = row[1]
+        
+        c = conn.execute("""
+            SELECT COUNT(*) as count, COALESCE(SUM(amount),0) as total FROM orders
+        """)
+        row = c.fetchone()
+        stats['total_orders'] = row[0]
+        stats['total_revenue'] = row[1]
+        
+        c = conn.execute("SELECT COUNT(*) FROM orders WHERE status='pending'")
+        stats['pending_orders'] = c.fetchone()[0]
+        
+        c = conn.execute("SELECT COUNT(*) FROM orders WHERE status='delivered'")
+        stats['delivered_orders'] = c.fetchone()[0]
+        
+        c = conn.execute("SELECT COUNT(*) FROM orders WHERE status='processing'")
+        stats['processing_orders'] = c.fetchone()[0]
+        
+        # Today stats
+        today = datetime.now().strftime("%Y-%m-%d")
+        c = conn.execute("""
+            SELECT COUNT(*), COALESCE(SUM(amount),0) FROM orders
+            WHERE order_date LIKE ?
+        """, (f"{today}%",))
+        row = c.fetchone()
+        stats['today_orders'] = row[0]
+        stats['today_revenue'] = row[1]
+        
+        conn.close()
+        return stats
 
-# ─────────────────────────────────────────────
-# ➕ ADMIN PRODUCT ADDITION
-# — this is the flow that fixes "নতুন ক্যাটাগরি এড করলে ইউজার দেখে না":
-# every product is tied to a category, and show_categories_ui always
-# re‑reads the DB, so a brand‑new category shows up immediately.
-# ─────────────────────────────────────────────
-async def start_product_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    cats = get_all_categories()
-    kb = [[InlineKeyboardButton(f"{c['icon']} {c['name']}", callback_data=f"cat_{c['name']}")] for c in cats]
-    kb.append([InlineKeyboardButton("➕ নতুন ক্যাটাগরি তৈরি করুন", callback_data="cat_new")])
-    await update.callback_query.message.reply_text(
-        "🗂️ কোন ক্যাটাগরিতে প্রোডাক্ট যোগ করবেন?\n"
-        "(নতুন কিছু বিক্রি করতে চাইলে — যেমন Proxy বা YouTube Premium — নিচে থেকে <b>➕ নতুন ক্যাটাগরি</b> চাপুন)",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode=ParseMode.HTML
-    )
-    return ADMIN_ADD_PROD_CAT
 
-async def prod_cat_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == "cat_new":
-        await query.message.reply_text("✏️ নতুন ক্যাটাগরির নাম লিখুন (যেমন: YouTube Premium):")
-        return ADMIN_ADD_PROD_NEWCAT_NAME
-    cat_name = query.data.replace("cat_", "", 1)
-    context.user_data["new_prod_cat"] = cat_name
-    return await ask_delivery_type(update, context)
+# ==================== INITIALIZATION ====================
+db = Database()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
 
-async def prod_newcat_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["pending_new_cat_name"] = update.message.text.strip()
-    await update.message.reply_text("🎨 এই ক্যাটাগরির জন্য একটি ইমোজি আইকন পাঠান (যেমন: ▶️, 🌐, 🎮):")
-    return ADMIN_ADD_PROD_NEWCAT_ICON
+# ==================== FSM STATES ====================
+class OrderStates(StatesGroup):
+    selecting_category = State()
+    selecting_product = State()
+    entering_input = State()
+    selecting_payment = State()
+    entering_trx_id = State()
+    confirming = State()
 
-async def prod_newcat_icon_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    icon = update.message.text.strip() or "📦"
-    name = context.user_data.pop("pending_new_cat_name")
-    ensure_category(name, icon)
-    context.user_data["new_prod_cat"] = name
-    return await ask_delivery_type(update, context, use_message=True)
+class AdminStates(StatesGroup):
+    main_menu = State()
+    adding_balance_user = State()
+    adding_balance_amount = State()
+    delivering_order = State()
+    delivering_file = State()
+    broadcasting_msg = State()
+    broadcasting_confirm = State()
+    editing_product_cat = State()
+    editing_product = State()
+    editing_product_name = State()
+    editing_product_price = State()
+    banning_user = State()
+    unbanning_user = State()
 
-async def ask_delivery_type(update: Update, context: ContextTypes.DEFAULT_TYPE, use_message: bool = False):
-    kb = [
-        [InlineKeyboardButton("🔑 অটো ডেলিভারি (Stock থেকে Email/Password)", callback_data="deliv_auto")],
-        [InlineKeyboardButton("🎮 ম্যানুয়াল (কাস্টমারের Game ID/UID লাগবে)", callback_data="deliv_manual")],
-    ]
-    text = "🚚 ডেলিভারি টাইপ বেছে নিন:"
-    if use_message:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb))
-    else:
-        await update.callback_query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb))
-    return ADMIN_ADD_PROD_DELIVERY
 
-async def prod_delivery_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data["new_prod_delivery"] = "auto" if query.data == "deliv_auto" else "manual"
-    await query.message.reply_text("📦 এখন প্রোডাক্টের <b>নাম</b> লিখুন (যেমন: World Best VPN Proxy):", parse_mode=ParseMode.HTML)
-    return ADMIN_ADD_PROD_NAME
+# ==================== HELPER FUNCTIONS ====================
 
-async def prod_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_prod_name"] = update.message.text.strip()
-    await update.message.reply_text("🎨 প্রোডাক্টের জন্য একটি ইমোজি আইকন পাঠান (যেমন: 🌐):")
-    return ADMIN_ADD_PROD_DESC  # icon collected here then description next below, reuse state chain
+def get_categories() -> List[Dict]:
+    """Get all categories from config"""
+    return PRODUCTS_CONFIG["categories"]
 
-async def prod_icon_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_prod_icon"] = update.message.text.strip() or "📦"
-    await update.message.reply_text("📝 একটি সংক্ষিপ্ত বিবরণ (description) লিখুন:")
-    return ADMIN_ADD_PROD_OPTS  # placeholder, real desc handled below
+def get_category(cat_id: str) -> Optional[Dict]:
+    """Get category by ID"""
+    for cat in get_categories():
+        if cat["id"] == cat_id:
+            return cat
+    return None
 
-async def prod_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_prod_desc"] = update.message.text.strip()
-    await update.message.reply_text(
-        "💎 এবার <b>প্যাকেজগুলো JSON আকারে</b> পাঠান:\n"
-        "প্রতিটি প্যাকেজে <code>amount</code>, <code>price</code>, <code>valid_days</code> থাকতে হবে\n"
-        "উদাহরণ:\n"
-        '<code>[{"amount":"1 Month","price":150,"valid_days":30},{"amount":"3 Months","price":400,"valid_days":90}]</code>\n\n'
-        "(ওয়ান-টাইম আইটেমের জন্য <code>valid_days</code> এ 0 দিন)",
-        parse_mode=ParseMode.HTML
-    )
-    return ADMIN_ADD_PROD_OPTS
+def get_product(cat_id: str, prod_id: str) -> Optional[Dict]:
+    """Get product by category and product ID"""
+    cat = get_category(cat_id)
+    if not cat:
+        return None
+    for prod in cat["products"]:
+        if prod["id"] == prod_id:
+            return {**prod, "category": cat}
+    return None
 
-async def prod_opts_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip()
-    try:
-        opts = json.loads(raw)
-        for o in opts:
-            if not all(k in o for k in ("amount", "price", "valid_days")):
-                raise ValueError("Missing fields")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Invalid JSON: {e}\nআবার চেষ্টা করুন:")
-        return ADMIN_ADD_PROD_OPTS
-    cat = context.user_data["new_prod_cat"]
-    delivery = context.user_data["new_prod_delivery"]
-    name = context.user_data["new_prod_name"]
-    icon = context.user_data.get("new_prod_icon", "📦")
-    desc = context.user_data["new_prod_desc"]
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO products (name, category, delivery_type, icon, description, options) VALUES (?,?,?,?,?,?)",
-            (name, cat, delivery, icon, desc, raw)
-        )
-    context.user_data.clear()
-    await update.message.reply_text(
-        f"✅ <b>{UIBuilder.safe_text(name)}</b> এখন <b>{UIBuilder.safe_text(cat)}</b> ক্যাটাগরিতে লাইভ!\n"
-        f"ইউজাররা এখনই শপ মেনু থেকে এটি দেখতে ও কিনতে পারবে। 🎉",
-        parse_mode=ParseMode.HTML
-    )
-    return ConversationHandler.END
+def format_price(price: float) -> str:
+    """Format price with BDT symbol"""
+    return f"৳{price:,.0f}"
 
-# ─────────────────────────────────────────────
-# ➕ ADMIN STOCK ADDITION (auto‑delivery products only)
-# ─────────────────────────────────────────────
-async def start_stock_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    with db() as conn:
-        products = conn.execute("SELECT id, name FROM products WHERE delivery_type = 'auto'").fetchall()
-    if not products:
-        await update.callback_query.message.reply_text("❌ কোনো অটো-ডেলিভারি প্রোডাক্ট নেই। আগে একটি প্রোডাক্ট যোগ করুন।")
-        return ConversationHandler.END
-    kb = [[InlineKeyboardButton(p["name"], callback_data=f"stockprod_{p['id']}")] for p in products]
-    kb.append([InlineKeyboardButton("❌ Cancel", callback_data="back_main")])
-    await update.callback_query.message.reply_text("📦 কোন প্রোডাক্টের জন্য স্টক যোগ করবেন?", reply_markup=InlineKeyboardMarkup(kb))
-    return ADMIN_ADD_STOCK_PROD
+def generate_order_id() -> str:
+    """Generate unique order ID"""
+    chars = string.ascii_uppercase + string.digits
+    return "ORD" + "".join(random.choices(chars, k=8))
 
-async def stock_prod_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    prod_id = int(query.data.split("_")[1])
-    context.user_data["stock_product_id"] = prod_id
-    await query.message.reply_text("📧 এই অ্যাকাউন্টের <b>email</b> দিন:", parse_mode=ParseMode.HTML)
-    return ADMIN_ADD_STOCK_EMAIL
-
-async def stock_email_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["stock_email"] = update.message.text.strip()
-    await update.message.reply_text("🔑 <b>password</b> দিন:", parse_mode=ParseMode.HTML)
-    return ADMIN_ADD_STOCK_PASSWORD
-
-async def stock_password_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["stock_password"] = update.message.text.strip()
-    await update.message.reply_text("🔐 এক্টিভেশন কী থাকলে দিন, না থাকলে 'skip' লিখুন:")
-    return ADMIN_ADD_STOCK_ACTIVATION
-
-async def stock_activation_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    key = update.message.text.strip()
-    if key.lower() == "skip":
-        key = None
-    context.user_data["stock_activation_key"] = key
-    return await save_stock(update, context)
-
-async def save_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pid = context.user_data.get("stock_product_id")
-    email = context.user_data.get("stock_email")
-    password = context.user_data.get("stock_password")
-    activation_key = context.user_data.get("stock_activation_key")
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO account_stock (product_id, email, password, activation_key) VALUES (?,?,?,?)",
-            (pid, email, password, activation_key)
-        )
-    context.user_data.clear()
-    await update.message.reply_text("✅ Stock added successfully!")
-    return ConversationHandler.END
-
-# ─────────────────────────────────────────────
-# 👤 BALANCE EDIT, RESTORE, BROADCAST, SEARCH
-# ─────────────────────────────────────────────
-async def start_balance_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await update.callback_query.message.reply_text("👤 Enter the Telegram ID:")
-    return ADMIN_SET_BAL_ID
-
-async def bal_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tid = update.message.text.strip()
-    user = get_user(tid)
-    if not user:
-        await update.message.reply_text("❌ Not found. Try again:")
-        return ADMIN_SET_BAL_ID
-    context.user_data["tgt_bal_id"] = tid
-    await update.message.reply_text(
-        f"👤 {user['name']}\n💵 Current: ৳{user['balance']:.2f}\n\n👉 New balance:"
-    )
-    return ADMIN_SET_BAL_AMT
-
-async def bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        amt = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❌ Invalid amount. Try again:")
-        return ADMIN_SET_BAL_AMT
-    tid = context.user_data.get("tgt_bal_id")
-    with db() as conn:
-        conn.execute("UPDATE users SET balance=? WHERE telegram_id=?", (amt, tid))
-    context.user_data.clear()
-    await update.message.reply_text(f"✅ Balance updated to ৳{amt:.2f}")
-    return ConversationHandler.END
-
-async def start_db_restore_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await update.callback_query.message.reply_text("📥 Send your backup <code>.db</code> file.\n⚠️ This will replace current data.", parse_mode=ParseMode.HTML)
-    return ADMIN_RESTORE_DB_STATE
-
-async def db_file_restore_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))):
-        return ConversationHandler.END
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".db"):
-        await update.message.reply_text("❌ Only .db files accepted.")
-        return ADMIN_RESTORE_DB_STATE
-    msg = await update.message.reply_text("⏳ Restoring...")
-    try:
-        file = await context.bot.get_file(doc.file_id)
-        temp = "temp_restore.db"
-        await file.download_to_drive(temp)
-        test = sqlite3.connect(temp)
-        test.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        test.close()
-        shutil.copyfile(temp, Config.DB_PATH)
-        os.remove(temp)
-        await msg.edit_text("✅ Database restored successfully!")
-    except Exception as e:
-        await msg.edit_text(f"❌ Restore failed: {e}")
-    return ConversationHandler.END
-
-async def broadcast_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))):
-        return ConversationHandler.END
-    text = update.message.text
-    with db() as conn:
-        users = conn.execute("SELECT telegram_id FROM users").fetchall()
-    sent = 0
-    for u in users:
-        try:
-            await context.bot.send_message(u["telegram_id"], text)
-            sent += 1
-        except Exception:
-            pass
-    await update.message.reply_text(f"✅ Broadcast sent to {sent}/{len(users)} users.")
-    return ConversationHandler.END
-
-async def search_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))):
-        return ConversationHandler.END
-    q = update.message.text.strip()
-    user = get_user(q)
-    if not user:
-        await update.message.reply_text("❌ User not found.")
-        return ConversationHandler.END
-    info = (
-        f"👤 <b>User Info</b>\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"🆔 <code>{user['telegram_id']}</code>\n"
-        f"👤 {user['name']}\n"
-        f"💵 ৳{user['balance']:.2f}\n"
-        f"🏅 {user['rank']}\n"
-        f"🎁 {user['reward_points']} pts\n"
-        f"📅 Joined: {user['created_at']}"
-    )
-    await update.message.reply_text(info, parse_mode=ParseMode.HTML)
-    return ConversationHandler.END
-
-# ─────────────────────────────────────────────
-# 👤 PROFILE & MISC
-# ─────────────────────────────────────────────
-async def show_balance_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = get_user(str(update.effective_user.id))
-    await edit_or_reply(
-        update,
-        f"💳 <b>My Wallet</b>\n━━━━━━━━━━━━━\n"
-        f"👤 {UIBuilder.safe_text(u['name'])}\n"
-        f"💰 ৳{u['balance']:,.2f}\n"
-        f"🎁 {u['reward_points']} pts\n\n"
-        f"➕ Recharge instantly 👇",
-        InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Instant Recharge", callback_data="recharge")],
-            [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")]
-        ])
-    )
-
-async def show_profile_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = get_user(str(update.effective_user.id))
-    await edit_or_reply(
-        update,
-        f"👤 <b>My Profile</b>\n━━━━━━━━━━━━━\n"
-        f"🆔 <code>{u['telegram_id']}</code>\n"
-        f"👤 {UIBuilder.safe_text(u['name'])}\n"
-        f"🏅 {u['rank']}\n"
-        f"💵 ৳{u['balance']:.2f}\n"
-        f"📅 Joined: {u['created_at']}",
-        UIBuilder.back_button()
-    )
-
-async def show_settings_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await edit_or_reply(update, "⚙️ <b>Settings</b>\n\nMore options coming soon.", UIBuilder.back_button())
-
-async def show_help_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await edit_or_reply(update, "💬 <b>24/7 Support</b>\n\nContact @SkyTopUpSupport", UIBuilder.back_button())
-
-async def show_orders_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    with db() as conn:
-        orders = conn.execute(
-            "SELECT * FROM orders WHERE telegram_id=? ORDER BY created_at DESC LIMIT 5",
-            (str(update.effective_user.id),)
-        ).fetchall()
-    if not orders:
-        await edit_or_reply(update, "📭 No orders yet.", UIBuilder.back_button())
-        return
-    lines = ["📦 <b>Last Orders</b>\n"]
-    for o in orders:
-        lines.append(f"🆔 <code>{o['order_id']}</code> | {o['product_name']} | ৳{o['price']} | {o['status']}")
-    await edit_or_reply(update, "\n".join(lines), UIBuilder.back_button())
-
-# ─────────────────────────────────────────────
-# 🔄 MAIN CALLBACK ROUTER
-# ─────────────────────────────────────────────
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    routes = {
-        "back_main": cmd_start,
-        "shop": show_categories_ui,
-        "balance": show_balance_ui,
-        "orders": show_orders_ui,
-        "recharge": show_recharge_ui,
-        "profile": show_profile_ui,
-        "settings": show_settings_ui,
-        "help": show_help_ui,
-        "admin_panel": show_admin_panel_ui,
+def get_status_emoji(status: str) -> str:
+    """Get status emoji"""
+    emojis = {
+        "pending": "⏳",
+        "processing": "🔄", 
+        "delivered": "✅",
+        "cancelled": "❌",
+        "refunded": "💰",
+        "completed": "✅"
     }
-    if data in routes:
-        await routes[data](update, context)
-    elif data.startswith("category_"):
-        await show_products_ui(update, context, data.replace("category_", "", 1))
-    elif data.startswith("product_"):
-        await select_package_ui(update, context, int(data.replace("product_", "")))
-    elif data.startswith("depamt_"):
-        await deposit_amount_button(update, context)
+    return emojis.get(status, "❓")
 
-# ─────────────────────────────────────────────
-# 🚀 MAIN
-# ─────────────────────────────────────────────
-def main():
-    init_db()
-    app = Application.builder().token(Config.BOT_TOKEN).build()
 
-    reg_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", cmd_start)],
-        states={
-            REG_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, reg_receive_password)],
-            REG_CONFIRM_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, reg_confirm_password)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+# ==================== KEYBOARD BUILDERS ====================
+
+def main_menu_kb(user_id: int = None) -> InlineKeyboardMarkup:
+    """🏠 Main Menu Keyboard — Premium Design"""
+    builder = InlineKeyboardBuilder()
+    
+    # Check if user is admin
+    is_admin = user_id in ADMIN_IDS if user_id else False
+    
+    builder.button(text=f"{EMOJIS['cart']} Buy TopUp", callback_data="categories", style="primary")
+    builder.button(text=f"{EMOJIS['wallet']} My Wallet", callback_data="my_wallet", style="success")
+    builder.button(text=f"{EMOJIS['package']} My Orders", callback_data="my_orders")
+    builder.button(text=f"{EMOJIS['gift']} Promotions", callback_data="promotions")
+    builder.button(text=f"{EMOJIS['phone']} Support", callback_data="support")
+    builder.button(text=f"{EMOJIS['star']} Rate Us", callback_data="rate")
+    
+    if is_admin:
+        builder.button(text=f"{EMOJIS['admin']} Admin Panel", callback_data="admin_menu", style="danger")
+    
+    # 2 buttons per row
+    builder.adjust(2, 2, 2)
+    
+    return builder.as_markup()
+
+
+def categories_kb() -> InlineKeyboardMarkup:
+    """📂 Categories Keyboard"""
+    builder = InlineKeyboardBuilder()
+    
+    for cat in get_categories():
+        if cat["id"] == "topup":
+            continue  # Skip wallet top-up from main listing
+        style = cat.get("color", "primary")
+        builder.button(
+            text=f"{cat['emoji']} {cat['name']}",
+            callback_data=f"cat_{cat['id']}",
+            style=style
+        )
+    
+    builder.button(text=f"{EMOJIS['wallet']} {EMOJIS['plus']} Wallet Top-Up", callback_data="cat_topup", style="success")
+    builder.button(text=f"{EMOJIS['back']} Main Menu", callback_data="main_menu")
+    
+    builder.adjust(2, 2, 2, 2, 1)
+    
+    return builder.as_markup()
+
+
+def products_kb(cat_id: str, page: int = 0) -> InlineKeyboardMarkup:
+    """📦 Products Keyboard with Pagination"""
+    cat = get_category(cat_id)
+    if not cat:
+        return main_menu_kb()
+    
+    builder = InlineKeyboardBuilder()
+    products = cat["products"]
+    
+    # Pagination: 6 products per page
+    per_page = 8
+    total_pages = max(1, (len(products) + per_page - 1) // per_page)
+    page = min(page, total_pages - 1)
+    start = page * per_page
+    end = start + per_page
+    page_products = products[start:end]
+    
+    for prod in page_products:
+        price_text = format_price(prod["price"])
+        if prod.get("discount", 0) > 0:
+            price_text += f" 🔥-{format_price(prod['discount'])}"
+        
+        # Style based on popularity or price
+        style = "primary"
+        if prod.get("popular"):
+            style = "danger"
+        elif prod["price"] > 500:
+            style = "success"
+        
+        name = prod["name"]
+        if prod.get("popular"):
+            name = f"{EMOJIS['fire']} {name}"
+        
+        builder.button(
+            text=f"{name} — {price_text}",
+            callback_data=f"prod_{cat_id}_{prod['id']}",
+            style=style
+        )
+    
+    # Navigation row (back + page info + next)
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text=f"{EMOJIS['previous']} Page {page}",
+                callback_data=f"page_{cat_id}_{page-1}"
+            )
+        )
+    
+    nav_buttons.append(
+        InlineKeyboardButton(
+            text=f"{page+1}/{total_pages}",
+            callback_data="noop"
+        )
+    )
+    
+    if page < total_pages - 1:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text=f"Page {page+2} {EMOJIS['next']}",
+                callback_data=f"page_{cat_id}_{page+1}"
+            )
+        )
+    
+    builder.row(*nav_buttons)
+    
+    builder.button(text=f"{EMOJIS['back']} Back to Categories", callback_data="categories")
+    builder.button(text=f"{EMOJIS['home']} Main Menu", callback_data="main_menu")
+    
+    builder.adjust(1, len(nav_buttons), 1)
+    
+    return builder.as_markup()
+
+
+def payment_kb() -> InlineKeyboardMarkup:
+    """💳 Payment Method Keyboard"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(text=f"{EMOJIS['bank']} bKash", callback_data="pay_bkash", style="success")
+    builder.button(text=f"{EMOJIS['bank']} Nagad", callback_data="pay_nagad", style="primary")
+    builder.button(text=f"{EMOJIS['rocket']} Rocket", callback_data="pay_rocket", style="danger")
+    builder.button(text=f"{EMOJIS['card']} UPI", callback_data="pay_upi", style="primary")
+    builder.button(text=f"{EMOJIS['wallet']} Wallet Balance", callback_data="pay_wallet", style="success")
+    builder.button(text=f"{EMOJIS['back']} Change Product", callback_data="prod_back")
+    
+    builder.adjust(2, 2, 1, 1)
+    
+    return builder.as_markup()
+
+
+def admin_kb() -> InlineKeyboardMarkup:
+    """🔐 Admin Panel Keyboard"""
+    builder = InlineKeyboardBuilder()
+    
+    stats = db.get_stats()
+    
+    builder.button(text=f"{EMOJIS['chart']} Dashboard", callback_data="admin_dashboard", style="primary")
+    builder.button(text=f"{EMOJIS['package']} Orders ({stats['total_orders']})", callback_data="admin_orders", style="success")
+    builder.button(text=f"{EMOJIS['clock']} Pending ({stats['pending_orders']})", callback_data="admin_pending", style="danger")
+    builder.button(text=f"{EMOJIS['money']} Add Balance", callback_data="admin_add_balance", style="success")
+    builder.button(text=f"{EMOJIS['rocket']} Deliver Order", callback_data="admin_deliver", style="primary")
+    builder.button(text=f"{EMOJIS['pen']} Edit Products", callback_data="admin_edit_products")
+    builder.button(text=f"{EMOJIS['message']} Broadcast", callback_data="admin_broadcast")
+    builder.button(text=f"{EMOJIS['users']} Users ({stats['total_users']})", callback_data="admin_users")
+    builder.button(text=f"{EMOJIS['chart']} Full Stats", callback_data="admin_stats")
+    builder.button(text=f"{EMOJIS['back']} Main Menu", callback_data="main_menu")
+    
+    builder.adjust(2, 2, 2, 2, 2)
+    
+    return builder.as_markup()
+
+
+# ==================== START HANDLER ====================
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    """🚀 /start command — Welcome screen"""
+    user = message.from_user
+    db.add_user(user.id, user.username or "", user.first_name or "")
+    db.update_user_activity(user.id)
+    
+    welcome_text = (
+        f"{EMOJIS['sparkle']}{EMOJIS['sparkle']}{EMOJIS['sparkle']}"
+        f" **WELCOME TO TOPUP STORE BD!** "
+        f"{EMOJIS['sparkle']}{EMOJIS['sparkle']}{EMOJIS['sparkle']}\n\n"
+        
+        f"{EMOJIS['wave']} Hello, **{user.first_name}**! Welcome to Bangladesh's #1\n"
+        f"premium game top-up & digital services store.\n\n"
+        
+        f"{EMOJIS['rocket']} **What we offer:**\n"
+        f"{EMOJIS['bullet']} {EMOJIS['fire']} Free Fire Diamonds\n"
+        f"{EMOJIS['bullet']} {EMOJIS['target']} PUBG Mobile UC\n"
+        f"{EMOJIS['bullet']} {EMOJIS['dragon']} MLBB Diamonds\n"
+        f"{EMOJIS['bullet']} {EMOJIS['movie']} Netflix, YouTube Premium, Crunchyroll\n"
+        f"{EMOJIS['bullet']} {EMOJIS['gift']} Gift Cards & Social Media Services\n\n"
+        
+        f"{EMOJIS['lightning']} **Key Features:**\n"
+        f"{EMOJIS['bullet']} {EMOJIS['rocket']} **Instant AI Auto-Delivery**\n"
+        f"{EMOJIS['bullet']} {EMOJIS['shield']} **100% Secure & Trusted**\n"
+        f"{EMOJIS['bullet']} {EMOJIS['money']} **Best Prices in Bangladesh**\n"
+        f"{EMOJIS['bullet']} {EMOJIS['phone']} **24/7 Customer Support**\n\n"
+        
+        f"{EMOJIS['arrow']} Use the buttons below to get started!"
+    )
+    
+    await message.answer(
+        text=welcome_text,
+        reply_markup=main_menu_kb(user.id),
+        parse_mode="Markdown"
     )
 
-    order_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(package_selected_handler, pattern=r"^package_\d+_\d+$")],
-        states={
-            ORDER_DETAILS_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_order_details_handler)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+@dp.message(Command("admin"))
+async def cmd_admin(message: Message):
+    """🔐 /admin command — Admin access"""
+    if message.from_user.id not in ADMIN_IDS:
+        return await message.answer(f"{EMOJIS['cross']} Unauthorized access!")
+    
+    await message.answer(
+        f"{EMOJIS['admin']} **Admin Panel**\n\n"
+        f"Welcome to the admin control center.\n"
+        f"Manage orders, users, products & broadcast.",
+        reply_markup=admin_kb(),
+        parse_mode="Markdown"
     )
 
-    deposit_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(show_recharge_instructions_ui, pattern=r"^recharge_(bkash|nagad|rocket)$")],
-        states={
-            ADD_MONEY_AMOUNT: [
-                CallbackQueryHandler(deposit_amount_button, pattern=r"^depamt_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_money_amount_handler)
-            ],
-            ADD_MONEY_TRX: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_money_trx_handler)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+# ==================== CALLBACK QUERY HANDLER ====================
+
+@dp.callback_query()
+async def callback_handler(call: CallbackQuery, state: FSMContext):
+    """Main callback handler"""
+    data = call.data
+    user_id = call.from_user.id
+    
+    # Update activity
+    db.update_user_activity(user_id)
+    
+    # Check banned users
+    user = db.get_user(user_id)
+    if user and user["is_banned"] and not user_id in ADMIN_IDS:
+        return await call.answer(f"{EMOJIS['cross']} You are banned!", show_alert=True)
+    
+    # ========== MAIN MENU ==========
+    if data == "main_menu":
+        await state.clear()
+        await call.message.edit_text(
+            f"{EMOJIS['home']} **Main Menu**\n\nChoose an option:",
+            reply_markup=main_menu_kb(user_id),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== CATEGORIES ==========
+    if data == "categories":
+        await state.clear()
+        await call.message.edit_text(
+            f"{EMOJIS['cart']} **Select Category**\n\n"
+            f"Choose what you want to purchase:",
+            reply_markup=categories_kb(),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== CATEGORY SELECTED ==========
+    if data.startswith("cat_"):
+        cat_id = data[4:]
+        cat = get_category(cat_id)
+        if not cat:
+            return await call.answer(f"{EMOJIS['cross']} Category not found!", show_alert=True)
+        
+        await state.update_data(category=cat_id)
+        
+        desc_text = f"\n\n{cat['description']}\n" if cat.get("description") else ""
+        
+        await call.message.edit_text(
+            f"{cat['emoji']} **{cat['name']}**{desc_text}\n\n"
+            f"Select your package below:",
+            reply_markup=products_kb(cat_id),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== PAGINATION ==========
+    if data.startswith("page_"):
+        parts = data.split("_")
+        cat_id = parts[1]
+        page = int(parts[2])
+        
+        cat = get_category(cat_id)
+        if not cat:
+            return await call.answer(f"{EMOJIS['cross']} Error!", show_alert=True)
+        
+        await call.message.edit_text(
+            f"{cat['emoji']} **{cat['name']}**\n\n"
+            f"Select your package below:",
+            reply_markup=products_kb(cat_id, page),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== PRODUCT SELECTED ==========
+    if data.startswith("prod_"):
+        parts = data.split("_")
+        cat_id = parts[1]
+        prod_id = "_".join(parts[2:])  # Handle product IDs with underscores
+        
+        product = get_product(cat_id, prod_id)
+        if not product:
+            return await call.answer(f"{EMOJIS['cross']} Product not found!", show_alert=True)
+        
+        cat = product["category"]
+        
+        # If this is wallet top-up, process directly
+        if cat_id == "topup":
+            # Go to payment directly for balance top-up
+            await state.update_data(
+                product=product,
+                category=cat
+            )
+            
+            await call.message.edit_text(
+                f"{EMOJIS['wallet']} **{product['name']}**\n\n"
+                f"Price: {format_price(product['price'])}\n"
+                f"Bonus: +{format_price(product.get('discount', 0))} Free\n\n"
+                f"Select payment method:",
+                reply_markup=payment_kb(),
+                parse_mode="Markdown"
+            )
+            await state.set_state(OrderStates.selecting_payment)
+            return await call.answer()
+        
+        # Save product to state
+        await state.update_data(
+            product=product,
+            category=cat
+        )
+        
+        # Build product info
+        discount_text = ""
+        if product.get("discount", 0) > 0:
+            discount_text = f"\n{EMOJIS['fire']} **Discount:** -{format_price(product['discount'])}"
+        
+        popular_text = ""
+        if product.get("popular"):
+            popular_text = f"\n{EMOJIS['fire']} **Popular Choice!**"
+        
+        await call.message.edit_text(
+            f"{cat['emoji']} **{product['name']}**\n\n"
+            f"{EMOJIS['money']} Price: **{format_price(product['price'])}**{discount_text}"
+            f"{popular_text}\n\n"
+            f"{EMOJIS['info']} **{cat.get('input_label', 'Enter your details:')}**",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Back to Products",
+                    callback_data=f"cat_{cat_id}"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        await state.set_state(OrderStates.entering_input)
+        return await call.answer()
+    
+    # ========== PRODUCT BACK ==========
+    if data == "prod_back":
+        state_data = await state.get_data()
+        cat_id = state_data.get("category", {}).get("id", "freefire")
+        await call.message.edit_text(
+            f"Select your package below:",
+            reply_markup=products_kb(cat_id),
+            parse_mode="Markdown"
+        )
+        await state.set_state(OrderStates.selecting_product)
+        return await call.answer()
+    
+    # ========== PAYMENT METHOD ==========
+    if data.startswith("pay_"):
+        method = data[4:]
+        state_data = await state.get_data()
+        product = state_data.get("product", {})
+        
+        method_names = {
+            "bkash": "bKash",
+            "nagad": "Nagad", 
+            "rocket": "Rocket",
+            "upi": "UPI",
+            "wallet": "Wallet Balance"
+        }
+        
+        method_numbers = {
+            "bkash": BKASH_NUMBER,
+            "nagad": NAGAD_NUMBER,
+            "rocket": ROCKET_NUMBER,
+            "upi": UPI_ID
+        }
+        
+        await state.update_data(payment_method=method)
+        
+        if method == "wallet":
+            # Check balance
+            user = db.get_user(user_id)
+            price = product.get("price", 0)
+            if not user or user["balance"] < price:
+                return await call.answer(
+                    f"{EMOJIS['cross']} Insufficient balance!\n"
+                    f"Need: {format_price(price)}\n"
+                    f"Have: {format_price(user['balance'] if user else 0)}",
+                    show_alert=True
+                )
+            
+            # Process wallet payment
+            return await process_wallet_payment(call, state)
+        
+        else:
+            # Show payment instructions
+            price = product.get("price", 0)
+            number = method_numbers.get(method, "Contact admin")
+            
+            payment_text = (
+                f"{EMOJIS['money']} **Payment Instructions**\n\n"
+                f"Product: **{product.get('name', 'N/A')}**\n"
+                f"Amount: **{format_price(price)}**\n"
+                f"Method: **{method_names.get(method, method)}**\n\n"
+                f"{EMOJIS['phone']} Send to:\n"
+                f"`{number}`\n\n"
+                f"{EMOJIS['camera']} After sending payment, enter your\n"
+                f"**Transaction ID (TrxID)** below:"
+            )
+            
+            await call.message.edit_text(
+                payment_text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{EMOJIS['back']} Change Method",
+                        callback_data="prod_back"
+                    )]
+                ]),
+                parse_mode="Markdown"
+            )
+            await state.set_state(OrderStates.entering_trx_id)
+            return await call.answer()
+    
+    # ========== MY WALLET ==========
+    if data == "my_wallet":
+        user = db.get_user(user_id)
+        if not user:
+            return await call.answer(f"{EMOJIS['cross']} User not found!")
+        
+        wallet_text = (
+            f"{EMOJIS['wallet']} **My Wallet**\n\n"
+            f"Balance: **{format_price(user['balance'])}**\n"
+            f"Total Spent: **{format_price(user['total_spent'])}**\n"
+            f"Total Orders: **{user['total_orders']}**\n\n"
+            f"{EMOJIS['arrow']} Use Wallet Top-Up to add balance!\n"
+            f"{EMOJIS['arrow']} Pay with wallet for instant delivery!"
+        )
+        
+        await call.message.edit_text(
+            wallet_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['wallet']} {EMOJIS['plus']} Top-Up Wallet",
+                    callback_data="cat_topup",
+                    style="success"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Main Menu",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== MY ORDERS ==========
+    if data == "my_orders":
+        orders = db.get_user_orders(user_id)
+        
+        if not orders:
+            await call.message.edit_text(
+                f"{EMOJIS['package']} **My Orders**\n\n"
+                f"You haven't placed any orders yet!\n\n"
+                f"{EMOJIS['arrow']} Start shopping from Categories!",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{EMOJIS['cart']} Browse Categories",
+                        callback_data="categories",
+                        style="primary"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"{EMOJIS['back']} Main Menu",
+                        callback_data="main_menu"
+                    )]
+                ]),
+                parse_mode="Markdown"
+            )
+            return await call.answer()
+        
+        # Show recent 8 orders
+        order_text = f"{EMOJIS['package']} **My Orders**\n\n"
+        for o in orders[:8]:
+            status = get_status_emoji(o["status"])
+            order_text += (
+                f"`#{o['order_id']}` {status} "
+                f"{o['product_name']}\n"
+                f"   {format_price(o['amount'])} — {o['status'].upper()}\n\n"
+            )
+        
+        if len(orders) > 8:
+            order_text += f"\n... and {len(orders)-8} more orders"
+        
+        await call.message.edit_text(
+            order_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Main Menu",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== PROMOTIONS ==========
+    if data == "promotions":
+        promo_text = (
+            f"{EMOJIS['gift']} **Promotions & Offers**\n\n"
+            f"{EMOJIS['fire']} **New User Offer:**\n"
+            f"Get **10% extra** on first wallet top-up!\n\n"
+            f"{EMOJIS['fire']} **Referral Program:**\n"
+            f"Invite friends & earn **৳50** per referral!\n\n"
+            f"{EMOJIS['fire']} **Bulk Discount:**\n"
+            f"Order over ৳1000 and get **5% cashback**!\n\n"
+            f"{EMOJIS['fire']} **Weekly Special:**\n"
+            f"Every Friday — **Free 10 diamonds** with 115+ pack!\n\n"
+            f"Follow our channel for updates!"
+        )
+        
+        await call.message.edit_text(
+            promo_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['bell']} Join Channel",
+                    url=f"https://t.me/{SUPPORT_USERNAME}"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Main Menu",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== SUPPORT ==========
+    if data == "support":
+        support_text = (
+            f"{EMOJIS['phone']} **24/7 Support**\n\n"
+            f"Need help? Contact us anytime!\n\n"
+            f"{EMOJIS['arrow']} **Admin:** @{SUPPORT_USERNAME}\n"
+            f"{EMOJIS['arrow']} **Response:** Within 5 minutes\n"
+            f"{EMOJIS['arrow']} **Hours:** 24/7/365\n\n"
+            f"Common issues:\n"
+            f"• Order not delivered → Contact with Order ID\n"
+            f"• Payment issue → Send payment screenshot\n"
+            f"• Account problem → We'll help resolve\n\n"
+            f"{EMOJIS['lightning']} We're here to help!"
+        )
+        
+        await call.message.edit_text(
+            support_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['message']} Message Admin",
+                    url=f"https://t.me/{SUPPORT_USERNAME}"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Main Menu",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== RATE US ==========
+    if data == "rate":
+        rate_text = (
+            f"{EMOJIS['star']} **Rate Our Service**\n\n"
+            f"Enjoying our service? Leave a review!\n\n"
+            f"Your feedback helps us improve! {EMOJIS['heart']}"
+        )
+        
+        await call.message.edit_text(
+            rate_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['star']} 5 Stars — Excellent!",
+                    callback_data="rate_5"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['star']} 4 Stars — Good",
+                    callback_data="rate_4"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['star']} 3 Stars — Average",
+                    callback_data="rate_3"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Main Menu",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    if data.startswith("rate_"):
+        rating = data[5:]
+        await call.answer(f"{EMOJIS['heart']} Thanks for rating us {rating}/5!", show_alert=True)
+        await call.message.edit_text(
+            f"{EMOJIS['heart']}{EMOJIS['heart']}{EMOJIS['heart']}\n\n"
+            f"Thank you for your feedback!\n"
+            f"Your {rating}-star rating means a lot to us!\n\n"
+            f"Come back anytime! {EMOJIS['wave']}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['home']} Main Menu",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        return
+    
+    # ========== NOOP ==========
+    if data == "noop":
+        return await call.answer()
+    
+    # ========== ADMIN CALLBACKS ==========
+    if data.startswith("admin_"):
+        if user_id not in ADMIN_IDS:
+            return await call.answer(f"{EMOJIS['cross']} Unauthorized!", show_alert=True)
+        
+        action = data[6:]
+        
+        if action == "dashboard":
+            stats = db.get_stats()
+            text = (
+                f"{EMOJIS['chart']} **Admin Dashboard**\n\n"
+                f"{EMOJIS['divider']}\n\n"
+                f"{EMOJIS['users']} Total Users: `{stats['total_users']}`\n"
+                f"{EMOJIS['package']} Total Orders: `{stats['total_orders']}`\n"
+                f"{EMOJIS['money']} Revenue: `{format_price(stats['total_revenue'])}`\n"
+                f"{EMOJIS['wallet']} In Wallets: `{format_price(stats['total_wallet'])}`\n\n"
+                f"{EMOJIS['clock']} Pending: `{stats['pending_orders']}`\n"
+                f"{EMOJIS['gear']} Processing: `{stats['processing_orders']}`\n"
+                f"{EMOJIS['verified']} Delivered: `{stats['delivered_orders']}`\n\n"
+                f"{EMOJIS['calendar']} Today: {stats['today_orders']} orders | {format_price(stats['today_revenue'])}\n\n"
+                f"{EMOJIS['green_circle']} **System Online**"
+            )
+            await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="Markdown")
+            return await call.answer()
+        
+        elif action == "orders":
+            orders = db.get_all_orders(limit=20)
+            if not orders:
+                await call.message.edit_text(
+                    f"{EMOJIS['package']} No orders found.",
+                    reply_markup=admin_kb()
+                )
+                return await call.answer()
+            
+            text = f"{EMOJIS['package']} **Recent Orders**\n\n"
+            for o in orders[:15]:
+                status = get_status_emoji(o["status"])
+                text += (
+                    f"`#{o['order_id']}` {status} "
+                    f"{o['product_name'][:20]}\n"
+                    f"   👤 {o['user_id']} | {format_price(o['amount'])} | {o['status']}\n"
+                )
+            
+            await call.message.edit_text(
+                text,
+                reply_markup=admin_kb(),
+                parse_mode="Markdown"
+            )
+            return await call.answer()
+        
+        elif action == "pending":
+            orders = db.get_all_orders("pending", limit=20)
+            if not orders:
+                await call.message.edit_text(
+                    f"{EMOJIS['verified']} No pending orders!",
+                    reply_markup=admin_kb()
+                )
+                return await call.answer()
+            
+            text = f"{EMOJIS['clock']} **Pending Orders**\n\n"
+            for o in orders[:15]:
+                text += (
+                    f"`#{o['order_id']}` 👤 `{o['user_id']}`\n"
+                    f"   {o['product_name'][:20]} | {format_price(o['amount'])}\n"
+                )
+            
+            await call.message.edit_text(
+                text,
+                reply_markup=admin_kb(),
+                parse_mode="Markdown"
+            )
+            return await call.answer()
+        
+        elif action == "add_balance":
+            await call.message.edit_text(
+                f"{EMOJIS['money']} **Add User Balance**\n\n"
+                f"Send the user's Telegram ID:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{EMOJIS['back']} Admin Panel",
+                        callback_data="main_menu"
+                    )]
+                ])
+            )
+            await state.set_state(AdminStates.adding_balance_user)
+            return await call.answer()
+        
+        elif action == "deliver":
+            await call.message.edit_text(
+                f"{EMOJIS['rocket']} **Deliver Order**\n\n"
+                f"Send the Order ID to deliver:\n"
+                f"(Example: 1, 2, 3...)",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{EMOJIS['back']} Admin Panel",
+                        callback_data="main_menu"
+                    )]
+                ])
+            )
+            await state.set_state(AdminStates.delivering_order)
+            return await call.answer()
+        
+        elif action == "edit_products":
+            builder = InlineKeyboardBuilder()
+            for cat in get_categories():
+                if cat["id"] == "topup":
+                    continue
+                builder.button(
+                    text=f"{cat['emoji']} {cat['name']}",
+                    callback_data=f"editcat_{cat['id']}",
+                    style=cat.get("color", "primary")
+                )
+            builder.button(text=f"{EMOJIS['back']} Admin Panel", callback_data="main_menu")
+            builder.adjust(2, 2, 2, 2, 1)
+            
+            await call.message.edit_text(
+                f"{EMOJIS['pen']} **Edit Products**\n\nSelect a category:",
+                reply_markup=builder.as_markup(),
+                parse_mode="Markdown"
+            )
+            return await call.answer()
+        
+        elif action == "broadcast":
+            await call.message.edit_text(
+                f"{EMOJIS['message']} **Broadcast Message**\n\n"
+                f"Send the message to broadcast to **all users**:\n"
+                f"(Can include text, emojis, and formatting)",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{EMOJIS['back']} Admin Panel",
+                        callback_data="main_menu"
+                    )]
+                ])
+            )
+            await state.set_state(AdminStates.broadcasting_msg)
+            return await call.answer()
+        
+        elif action == "stats":
+            stats = db.get_stats()
+            text = (
+                f"{EMOJIS['chart']} **Full Statistics**\n\n"
+                f"{EMOJIS['divider']}\n\n"
+                f"**Users**\n"
+                f"Total: `{stats['total_users']}`\n"
+                f"Wallet Total: `{format_price(stats['total_wallet'])}`\n\n"
+                f"**Orders**\n"
+                f"Total: `{stats['total_orders']}`\n"
+                f"Revenue: `{format_price(stats['total_revenue'])}`\n"
+                f"Pending: `{stats['pending_orders']}`\n"
+                f"Processing: `{stats['processing_orders']}`\n"
+                f"Delivered: `{stats['delivered_orders']}`\n\n"
+                f"**Today**\n"
+                f"Orders: `{stats['today_orders']}`\n"
+                f"Revenue: `{format_price(stats['today_revenue'])}`\n"
+            )
+            await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="Markdown")
+            return await call.answer()
+        
+        elif action == "users":
+            users = db.get_all_users()
+            total = len(users)
+            banned = sum(1 for u in users if u["is_banned"])
+            active = sum(1 for u in users if not u["is_banned"])
+            with_balance = sum(1 for u in users if u["balance"] > 0)
+            
+            text = (
+                f"{EMOJIS['users']} **User Management**\n\n"
+                f"Total Users: `{total}`\n"
+                f"Active: `{active}`\n"
+                f"Banned: `{banned}`\n"
+                f"With Balance: `{with_balance}`\n\n"
+                f"**Actions:**\n"
+                f"{EMOJIS['arrow']} Use /ban [user_id] to ban\n"
+                f"{EMOJIS['arrow']} Use /unban [user_id] to unban\n"
+                f"{EMOJIS['arrow']} Use /user [user_id] for details"
+            )
+            
+            builder = InlineKeyboardBuilder()
+            builder.button(text=f"{EMOJIS['lock']} Ban User", callback_data="admin_ban_user", style="danger")
+            builder.button(text=f"{EMOJIS['unlock']} Unban User", callback_data="admin_unban_user", style="success")
+            builder.button(text=f"{EMOJIS['money']} Add Balance", callback_data="admin_add_balance", style="primary")
+            builder.button(text=f"{EMOJIS['back']} Admin Panel", callback_data="main_menu")
+            builder.adjust(2, 1, 1)
+            
+            await call.message.edit_text(
+                text,
+                reply_markup=builder.as_markup(),
+                parse_mode="Markdown"
+            )
+            return await call.answer()
+        
+        elif action == "ban_user":
+            await call.message.edit_text(
+                f"{EMOJIS['lock']} **Ban User**\n\nSend the user's Telegram ID:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"{EMOJIS['back']} Admin", callback_data="main_menu")]
+                ])
+            )
+            await state.set_state(AdminStates.banning_user)
+            return await call.answer()
+        
+        elif action == "unban_user":
+            await call.message.edit_text(
+                f"{EMOJIS['unlock']} **Unban User**\n\nSend the user's Telegram ID:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"{EMOJIS['back']} Admin", callback_data="main_menu")]
+                ])
+            )
+            await state.set_state(AdminStates.unbanning_user)
+            return await call.answer()
+    
+    # ========== EDIT CATEGORY PRODUCTS ==========
+    if data.startswith("editcat_"):
+        cat_id = data[8:]
+        cat = get_category(cat_id)
+        if not cat:
+            return await call.answer(f"{EMOJIS['cross']} Not found!")
+        
+        builder = InlineKeyboardBuilder()
+        for prod in cat["products"]:
+            name = prod["name"][:20]
+            price = format_price(prod["price"])
+            builder.button(
+                text=f"{name} — {price}",
+                callback_data=f"editprod_{cat_id}_{prod['id']}"
+            )
+        builder.button(text=f"{EMOJIS['back']} Categories", callback_data="admin_edit_products")
+        builder.adjust(1)
+        
+        await call.message.edit_text(
+            f"{cat['emoji']} **{cat['name']}** — Products:\n\n"
+            f"Click a product to edit:",
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    # ========== EDIT PRODUCT ==========
+    if data.startswith("editprod_"):
+        parts = data.split("_")
+        cat_id = parts[1]
+        prod_id = "_".join(parts[2:])
+        
+        product = get_product(cat_id, prod_id)
+        if not product:
+            return await call.answer(f"{EMOJIS['cross']} Not found!")
+        
+        await state.update_data(edit_cat=cat_id, edit_prod=prod_id)
+        
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"{EMOJIS['pen']} Edit Name", callback_data="edit_name", style="primary")
+        builder.button(text=f"{EMOJIS['money']} Edit Price", callback_data="edit_price", style="success")
+        builder.button(text=f"{EMOJIS['back']} Back", callback_data=f"editcat_{cat_id}")
+        builder.adjust(2, 1)
+        
+        await call.message.edit_text(
+            f"{EMOJIS['pen']} **Editing:** {product['name']}\n"
+            f"Price: {format_price(product['price'])}\n\n"
+            f"Choose what to edit:",
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
+        return await call.answer()
+    
+    if data == "edit_name":
+        await call.message.edit_text(
+            f"{EMOJIS['pen']} Send the new product name:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"{EMOJIS['back']} Back", callback_data="admin_edit_products")]
+            ])
+        )
+        await state.set_state(AdminStates.editing_product_name)
+        return await call.answer()
+    
+    if data == "edit_price":
+        await call.message.edit_text(
+            f"{EMOJIS['money']} Send the new price (number only):",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"{EMOJIS['back']} Back", callback_data="admin_edit_products")]
+            ])
+        )
+        await state.set_state(AdminStates.editing_product_price)
+        return await call.answer()
+
+
+# ==================== WALLET PAYMENT PROCESSING ====================
+
+async def process_wallet_payment(call: CallbackQuery, state: FSMContext):
+    """Process payment via wallet balance"""
+    state_data = await state.get_data()
+    product = state_data.get("product", {})
+    cat = state_data.get("category", {})
+    user_input = state_data.get("user_input", "Wallet TopUp")
+    user_id = call.from_user.id
+    price = product.get("price", 0)
+    discount = product.get("discount", 0)
+    actual_deduct = price  # ওয়ালেট টপ-আপের জন্য
+    
+    # Check balance
+    user = db.get_user(user_id)
+    if not user or user["balance"] < actual_deduct:
+        return await call.answer(
+            f"{EMOJIS['cross']} Insufficient balance!\nYou need {format_price(actual_deduct)}"
+            f"\nYour balance: {format_price(user['balance'] if user else 0)}",
+            show_alert=True
+        )
+    
+    # Deduct balance
+    db.update_balance(user_id, -actual_deduct)
+    
+    # For wallet top-up, add bonus
+    if cat.get("id") == "topup":
+        bonus = discount
+        db.update_balance(user_id, price + bonus)
+        
+        # Record transaction
+        db.add_transaction(user_id, price, "topup", "Wallet",
+                          f"WALLET_{datetime.now().timestamp():.0f}",
+                          f"Auto top-up: +{format_price(price+bonus)}")
+        
+        await call.message.edit_text(
+            f"{EMOJIS['verified']} **Wallet Top-Up Successful!**\n\n"
+            f"Amount: **{format_price(price)}**\n"
+            f"Bonus: **+{format_price(bonus)}**\n"
+            f"Total Added: **{format_price(price + bonus)}**\n\n"
+            f"New Balance: **{format_price(user['balance'] - actual_deduct + price + bonus)}**\n\n"
+            f"{EMOJIS['sparkle']} Thank you for using TopUp Store BD!",
+            reply_markup=main_menu_kb(user_id),
+            parse_mode="Markdown"
+        )
+    else:
+        # For regular products — create order and auto-deliver
+        trx_id = f"WALLET_{datetime.now().timestamp():.0f}"
+        order_id = db.add_order(
+            user_id, product.get("name", ""),
+            cat.get("name", ""),
+            price, 1, user_input,
+            "Wallet Balance", trx_id
+        )
+        
+        db.update_order_status(order_id, "delivered", note="Auto-delivered via wallet payment")
+        
+        await call.message.edit_text(
+            f"{EMOJIS['verified']} **Order Successful!**\n\n"
+            f"Order #`{order_id}`\n"
+            f"Product: **{product['name']}**\n"
+            f"Amount: **{format_price(price)}**\n"
+            f"Paid via: **Wallet Balance**\n\n"
+            f"{EMOJIS['rocket']} **Auto-Delivered!**\n"
+            f"Your order has been processed instantly!\n\n"
+            f"{EMOJIS['sparkle']} Thank you for your purchase!",
+            reply_markup=main_menu_kb(user_id),
+            parse_mode="Markdown"
+        )
+        
+        # Notify admins
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"{EMOJIS['lightning']} **Auto-Delivered via Wallet**\n\n"
+                    f"Order #`{order_id}`\n"
+                    f"👤 User: [{call.from_user.first_name}](tg://user?id={user_id})\n"
+                    f"📦 {product['name']}\n"
+                    f"💰 {format_price(price)}\n"
+                    f"💳 Wallet Balance",
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+    
+    await state.clear()
+
+
+# ==================== MESSAGE HANDLERS — USER INPUT ====================
+
+@dp.message(OrderStates.entering_input)
+async def process_user_input(message: Message, state: FSMContext):
+    """Process user detail input (UID, email, etc.)"""
+    user_input = message.text.strip()
+    
+    if not user_input or len(user_input) < 2:
+        return await message.answer(
+            f"{EMOJIS['cross']} Please enter valid details!\n"
+            f"Minimum 2 characters required."
+        )
+    
+    await state.update_data(user_input=user_input)
+    state_data = await state.get_data()
+    product = state_data.get("product", {})
+    price = product.get("price", 0)
+    
+    await message.answer(
+        f"{EMOJIS['verified']} **Details Received!**\n"
+        f"Input: `{user_input}`\n\n"
+        f"Product: **{product.get('name', '')}**\n"
+        f"Price: **{format_price(price)}**\n\n"
+        f"{EMOJIS['arrow']} Now select payment method:",
+        reply_markup=payment_kb(),
+        parse_mode="Markdown"
     )
+    await state.set_state(OrderStates.selecting_payment)
 
-    admin_bal_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_balance_set, pattern="^adm_balance_set$")],
-        states={
-            ADMIN_SET_BAL_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, bal_id_received)],
-            ADMIN_SET_BAL_AMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, bal_amt_received)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+@dp.message(OrderStates.entering_trx_id)
+async def process_trx_id(message: Message, state: FSMContext):
+    """Process transaction ID from user"""
+    trx_id = message.text.strip()
+    
+    if not trx_id:
+        return await message.answer(
+            f"{EMOJIS['cross']} Please enter a valid Transaction ID!"
+        )
+    
+    await state.update_data(transaction_id=trx_id)
+    state_data = await state.get_data()
+    product = state_data.get("product", {})
+    cat = state_data.get("category", {})
+    user_input = state_data.get("user_input", "")
+    payment_method = state_data.get("payment_method", "")
+    user_id = message.from_user.id
+    price = product.get("price", 0)
+    
+    method_names = {
+        "bkash": "bKash", "nagad": "Nagad",
+        "rocket": "Rocket", "upi": "UPI"
+    }
+    
+    # For Wallet Top-Up
+    if cat.get("id") == "topup":
+        # Auto-add balance
+        bonus = product.get("discount", 0)
+        total = price + bonus
+        db.update_balance(user_id, total)
+        db.add_transaction(user_id, total, "topup", method_names.get(payment_method, payment_method),
+                          trx_id, f"Top-up via {method_names.get(payment_method, payment_method)}")
+        
+        await message.answer(
+            f"{EMOJIS['verified']} **Balance Added Successfully!**\n\n"
+            f"Amount: **{format_price(price)}**\n"
+            f"Bonus: **+{format_price(bonus)}**\n"
+            f"Total Added: **{format_price(total)}**\n\n"
+            f"{EMOJIS['sparkle']} Thank you for your payment!\n"
+            f"Your balance has been updated.",
+            reply_markup=main_menu_kb(user_id),
+            parse_mode="Markdown"
+        )
+        
+        # Notify admins
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"{EMOJIS['money']} **Balance Top-Up**\n\n"
+                    f"👤 [{message.from_user.first_name}](tg://user?id={user_id})\n"
+                    f"💰 {format_price(price)} + {format_price(bonus)} bonus\n"
+                    f"💳 {method_names.get(payment_method, payment_method)}\n"
+                    f"🔢 TrxID: `{trx_id}`\n"
+                    f"✅ **Auto-Credited**",
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+        
+        await state.clear()
+        return
+    
+    # Regular product order
+    order_id = db.add_order(
+        user_id, product.get("name", ""),
+        cat.get("name", ""),
+        price, 1, user_input,
+        method_names.get(payment_method, payment_method),
+        trx_id
     )
-
-    # Admin product add — dynamic category + delivery-type flow
-    admin_prod_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_product_add, pattern="^adm_product_add$")],
-        states={
-            ADMIN_ADD_PROD_CAT: [CallbackQueryHandler(prod_cat_received, pattern="^cat_")],
-            ADMIN_ADD_PROD_NEWCAT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_newcat_name_received)],
-            ADMIN_ADD_PROD_NEWCAT_ICON: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_newcat_icon_received)],
-            ADMIN_ADD_PROD_DELIVERY: [CallbackQueryHandler(prod_delivery_received, pattern="^deliv_")],
-            ADMIN_ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_name_received)],
-            # chain: icon -> description -> options, reusing enum slots in order
-            ADMIN_ADD_PROD_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_icon_received)],
-            ADMIN_ADD_PROD_OPTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_desc_received)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+    
+    await message.answer(
+        f"{EMOJIS['verified']} **Order Placed Successfully!**\n\n"
+        f"Order #`{order_id}`\n"
+        f"Product: **{product.get('name', '')}**\n"
+        f"Amount: **{format_price(price)}**\n"
+        f"Payment: **{method_names.get(payment_method, payment_method)}**\n"
+        f"TrxID: `{trx_id}`\n\n"
+        f"{EMOJIS['clock']} **Status: Pending Verification**\n\n"
+        f"We will notify you once verified & delivered!\n"
+        f"{EMOJIS['phone']} Contact admin if any issue.",
+        reply_markup=main_menu_kb(user_id),
+        parse_mode="Markdown"
     )
+    
+    # Notify admins
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"{EMOJIS['bell']} **New Order!**\n\n"
+                f"#`{order_id}`\n"
+                f"👤 [{message.from_user.first_name}](tg://user?id={user_id})\n"
+                f"📦 {product.get('name', '')}\n"
+                f"💰 {format_price(price)}\n"
+                f"📝 ID: `{user_input}`\n"
+                f"💳 {method_names.get(payment_method, payment_method)}\n"
+                f"🔢 TrxID: `{trx_id}`",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+    
+    await state.clear()
 
-    admin_stock_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_stock_add, pattern="^adm_add_stock$")],
-        states={
-            ADMIN_ADD_STOCK_PROD: [CallbackQueryHandler(stock_prod_selected, pattern="^stockprod_")],
-            ADMIN_ADD_STOCK_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_email_received)],
-            ADMIN_ADD_STOCK_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_password_received)],
-            ADMIN_ADD_STOCK_ACTIVATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_activation_received)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+# ==================== ADMIN MESSAGE HANDLERS ====================
+
+@dp.message(AdminStates.adding_balance_user)
+async def admin_balance_user(message: Message, state: FSMContext):
+    """Admin: Receive target user ID"""
+    try:
+        target_id = int(message.text.strip())
+        await state.update_data(target_user=target_id)
+        
+        user = db.get_user(target_id)
+        if user:
+            name = user["first_name"] or "Unknown"
+            balance = user["balance"]
+            await message.answer(
+                f"👤 **User Found:** `{target_id}`\n"
+                f"Name: {name}\n"
+                f"Current Balance: {format_price(balance)}\n\n"
+                f"Send the amount to add:",
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer(
+                f"⚠️ User `{target_id}` not found in database.\n"
+                f"Send amount anyway? (They'll get it when they start the bot)",
+                parse_mode="Markdown"
+            )
+        
+        await state.set_state(AdminStates.adding_balance_amount)
+    except ValueError:
+        await message.answer(f"{EMOJIS['cross']} Invalid ID. Send a numeric Telegram ID:")
+
+
+@dp.message(AdminStates.adding_balance_amount)
+async def admin_balance_amount(message: Message, state: FSMContext):
+    """Admin: Receive amount to add"""
+    try:
+        amount = float(message.text.strip())
+        if amount <= 0 or amount > 1000000:
+            return await message.answer(f"{EMOJIS['cross']} Invalid amount (1-1000000):")
+        
+        state_data = await state.get_data()
+        target_id = state_data.get("target_user")
+        
+        db.update_balance(target_id, amount)
+        db.add_transaction(target_id, amount, "admin_add", "Admin",
+                          f"ADMIN_{datetime.now():%Y%m%d%H%M%S}",
+                          f"Added by admin @{message.from_user.username or 'admin'}")
+        
+        await message.answer(
+            f"{EMOJIS['verified']} **Balance Added!**\n\n"
+            f"👤 User: `{target_id}`\n"
+            f"💰 Amount: **+{format_price(amount)}**\n"
+            f"✅ **Successfully credited!**",
+            reply_markup=admin_kb(),
+            parse_mode="Markdown"
+        )
+        
+        # Notify user
+        try:
+            await bot.send_message(
+                target_id,
+                f"{EMOJIS['money']} **Balance Added!**\n\n"
+                f"+**{format_price(amount)}** has been added to your wallet!\n"
+                f"Check your balance in Profile.",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+        
+        await state.clear()
+    except ValueError:
+        await message.answer(f"{EMOJIS['cross']} Invalid amount. Send a number:")
+
+
+@dp.message(AdminStates.delivering_order)
+async def admin_deliver_order(message: Message, state: FSMContext):
+    """Admin: Receive order ID to deliver"""
+    try:
+        order_id = int(message.text.strip())
+        order = db.get_order(order_id)
+        
+        if not order:
+            return await message.answer(f"{EMOJIS['cross']} Order `{order_id}` not found!")
+        
+        await state.update_data(deliver_order_id=order_id)
+        
+        await message.answer(
+            f"📦 **Order #`{order_id}` Found**\n\n"
+            f"Product: {order['product_name']}\n"
+            f"User: `{order['user_id']}`\n"
+            f"Amount: {format_price(order['amount'])}\n"
+            f"Status: {order['status']}\n\n"
+            f"Send a delivery **screenshot/photo** or type delivery note:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['lightning']} Deliver Without Photo",
+                    callback_data="deliver_no_photo"
+                )],
+                [InlineKeyboardButton(
+                    text=f"{EMOJIS['back']} Admin Panel",
+                    callback_data="main_menu"
+                )]
+            ]),
+            parse_mode="Markdown"
+        )
+        await state.set_state(AdminStates.delivering_file)
+    except ValueError:
+        await message.answer(f"{EMOJIS['cross']} Invalid Order ID. Send a number:")
+
+
+@dp.message(AdminStates.delivering_file)
+async def admin_deliver_file(message: Message, state: FSMContext):
+    """Admin: Receive delivery file/photo"""
+    state_data = await state.get_data()
+    order_id = state_data.get("deliver_order_id")
+    
+    file_id = ""
+    note = "Delivered by admin ✅"
+    
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        note = message.caption or "Delivered with proof ✅"
+    elif message.document:
+        file_id = message.document.file_id
+        note = message.caption or "Delivered with file ✅"
+    else:
+        note = message.text or "Delivered by admin ✅"
+    
+    db.update_order_status(order_id, "delivered", file_id, note)
+    
+    order = db.get_order(order_id)
+    
+    await message.answer(
+        f"{EMOJIS['verified']} **Order #`{order_id}` Delivered!**\n\n"
+        f"📝 Note: {note}\n"
+        f"✅ Status updated successfully!",
+        reply_markup=admin_kb(),
+        parse_mode="Markdown"
     )
+    
+    # Notify user
+    if order:
+        try:
+            if file_id:
+                await bot.send_photo(
+                    order["user_id"],
+                    file_id,
+                    caption=(
+                        f"{EMOJIS['verified']} **Order Delivered!**\n\n"
+                        f"#`{order_id}`\n"
+                        f"📦 {order['product_name']}\n"
+                        f"{note}\n\n"
+                        f"{EMOJIS['sparkle']} Thank you for shopping with TopUp Store BD!"
+                    ),
+                    parse_mode="Markdown"
+                )
+            else:
+                await bot.send_message(
+                    order["user_id"],
+                    f"{EMOJIS['verified']} **Order Delivered!**\n\n"
+                    f"#`{order_id}`\n"
+                    f"📦 {order['product_name']}\n"
+                    f"{EMOJIS['file']} {note}\n\n"
+                    f"{EMOJIS['sparkle']} Thank you for shopping with TopUp Store BD!",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            await message.answer(f"⚠️ Could not notify user: {e}")
+    
+    await state.clear()
 
-    admin_restore_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_db_restore_process, pattern="^adm_restore_db$")],
-        states={
-            ADMIN_RESTORE_DB_STATE: [MessageHandler(filters.Document.ALL, db_file_restore_received)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+@dp.callback_query(lambda c: c.data == "deliver_no_photo")
+async def deliver_no_photo(call: CallbackQuery, state: FSMContext):
+    """Deliver without photo"""
+    state_data = await state.get_data()
+    order_id = state_data.get("deliver_order_id")
+    
+    db.update_order_status(order_id, "delivered", note="Delivered without photo (admin note)")
+    
+    order = db.get_order(order_id)
+    
+    await call.message.edit_text(
+        f"{EMOJIS['verified']} **Order #`{order_id}` Delivered!**\n\n"
+        f"✅ Delivered without photo.",
+        reply_markup=admin_kb(),
+        parse_mode="Markdown"
     )
+    
+    if order:
+        try:
+            await bot.send_message(
+                order["user_id"],
+                f"{EMOJIS['verified']} **Order Delivered!**\n\n"
+                f"#`{order_id}`\n"
+                f"📦 {order['product_name']}\n"
+                f"✅ Your order has been completed!\n\n"
+                f"{EMOJIS['sparkle']} Thank you for your purchase!",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+    
+    await state.clear()
 
-    broadcast_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(lambda u, c: ADMIN_BROADCAST_MSG, pattern="^adm_broadcast$")],
-        states={
-            ADMIN_BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_message_handler)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+@dp.message(AdminStates.broadcasting_msg)
+async def admin_broadcast_msg(message: Message, state: FSMContext):
+    """Admin: Receive broadcast message"""
+    msg_text = message.text or message.caption or "📢 Broadcast"
+    
+    await state.update_data(broadcast_text=msg_text)
+    
+    # Count users
+    users = db.get_all_users()
+    total = len(users)
+    active = sum(1 for u in users if not u["is_banned"])
+    
+    await message.answer(
+        f"{EMOJIS['message']} **Broadcast Preview**\n\n"
+        f"{msg_text[:200]}{'...' if len(msg_text) > 200 else ''}\n\n"
+        f"Total users: `{total}`\n"
+        f"Will receive: `{active}`\n\n"
+        f"Confirm broadcast?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"{EMOJIS['verified']} Yes, Send!",
+                    callback_data="broadcast_confirm",
+                    style="danger"
+                ),
+                InlineKeyboardButton(
+                    text=f"{EMOJIS['cross']} Cancel",
+                    callback_data="main_menu",
+                    style="primary"
+                )
+            ]
+        ]),
+        parse_mode="Markdown"
     )
+    await state.set_state(AdminStates.broadcasting_confirm)
 
-    search_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(lambda u, c: ADMIN_SEARCH_USER, pattern="^adm_search_user$")],
-        states={
-            ADMIN_SEARCH_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, search_user_handler)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+
+@dp.callback_query(lambda c: c.data == "broadcast_confirm")
+async def admin_broadcast_confirm(call: CallbackQuery, state: FSMContext):
+    """Execute broadcast"""
+    if call.from_user.id not in ADMIN_IDS:
+        return await call.answer(f"{EMOJIS['cross']} Unauthorized!", show_alert=True)
+    
+    state_data = await state.get_data()
+    msg_text = state_data.get("broadcast_text", "📢 Broadcast")
+    
+    await call.message.edit_text(
+        f"{EMOJIS['message']} **Broadcasting...**\n\n"
+        f"Sending messages to all users...\n"
+        f"{EMOJIS['clock']} This may take a while.",
+        parse_mode="Markdown"
     )
+    
+    users = db.get_all_users()
+    sent = 0
+    failed = 0
+    
+    for user in users:
+        if user["is_banned"]:
+            continue
+        try:
+            await bot.send_message(user["user_id"], msg_text, parse_mode="Markdown")
+            sent += 1
+            await asyncio.sleep(0.05)  # Rate limit protection
+        except:
+            failed += 1
+    
+    await call.message.edit_text(
+        f"{EMOJIS['verified']} **Broadcast Complete!**\n\n"
+        f"✅ Sent: `{sent}`\n"
+        f"❌ Failed: `{failed}`\n"
+        f"📝 Total: `{sent + failed}`",
+        reply_markup=admin_kb(),
+        parse_mode="Markdown"
+    )
+    
+    await state.clear()
 
-    app.add_handler(reg_handler)
-    app.add_handler(order_handler)
-    app.add_handler(deposit_handler)
-    app.add_handler(admin_bal_handler)
-    app.add_handler(admin_prod_handler)
-    app.add_handler(admin_stock_handler)
-    app.add_handler(admin_restore_handler)
-    app.add_handler(broadcast_handler)
-    app.add_handler(search_handler)
 
-    app.add_handler(CallbackQueryHandler(admin_callback_router, pattern=r"^adm_"))
-    app.add_handler(CallbackQueryHandler(
-        button_callback,
-        pattern=r"^(?!package_)(?!adm_)(?!depamt_)(?!cat_)(?!deliv_)(?!stockprod_)"
-    ))
+# ==================== BAN/UNBAN HANDLERS ====================
 
-    logger.info("💫 SKY TopUp Ultimate launched...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+@dp.message(AdminStates.banning_user)
+async def admin_ban_user(message: Message, state: FSMContext):
+    try:
+        user_id = int(message.text.strip())
+        if user_id in ADMIN_IDS:
+            return await message.answer(f"{EMOJIS['cross']} Cannot ban admin!")
+        
+        db.set_ban(user_id, True)
+        
+        await message.answer(
+            f"{EMOJIS['lock']} **User Banned**\n\n"
+            f"👤 `{user_id}` has been banned.",
+            reply_markup=admin_kb(),
+            parse_mode="Markdown"
+        )
+        await state.clear()
+        
+        try:
+            await bot.send_message(user_id, f"{EMOJIS['cross']} You have been banned from TopUp Store BD.")
+        except:
+            pass
+    except ValueError:
+        await message.answer(f"{EMOJIS['cross']} Invalid ID!")
+
+
+@dp.message(AdminStates.unbanning_user)
+async def admin_unban_user(message: Message, state: FSMContext):
+    try:
+        user_id = int(message.text.strip())
+        db.set_ban(user_id, False)
+        
+        await message.answer(
+            f"{EMOJIS['unlock']} **User Unbanned**\n\n"
+            f"👤 `{user_id}` has been unbanned.",
+            reply_markup=admin_kb(),
+            parse_mode="Markdown"
+        )
+        await state.clear()
+        
+        try:
+            await bot.send_message(user_id, f"{EMOJIS['verified']} You have been unbanned from TopUp Store BD.")
+        except:
+            pass
+    except ValueError:
+        await message.answer(f"{EMOJIS['cross']} Invalid ID!")
+
+
+# ==================== EDIT PRODUCT HANDLERS ====================
+
+@dp.message(AdminStates.editing_product_name)
+async def admin_edit_name(message: Message, state: FSMContext):
+    state_data = await state.get_data()
+    cat_id = state_data.get("edit_cat")
+    prod_id = state_data.get("edit_prod")
+    new_name = message.text.strip()
+    
+    # Update in-memory (would need file save for persistence)
+    cat = get_category(cat_id)
+    if cat:
+        for prod in cat["products"]:
+            if prod["id"] == prod_id:
+                prod["name"] = new_name
+                break
+    
+    await message.answer(
+        f"{EMOJIS['verified']} **Product Updated!**\n\n"
+        f"New name: {new_name}\n"
+        f"(Note: This is in-memory. Edit products.json for permanent changes)",
+        reply_markup=admin_kb(),
+        parse_mode="Markdown"
+    )
+    await state.clear()
+
+
+@dp.message(AdminStates.editing_product_price)
+async def admin_edit_price(message: Message, state: FSMContext):
+    try:
+        new_price = float(message.text.strip())
+        state_data = await state.get_data()
+        cat_id = state_data.get("edit_cat")
+        prod_id = state_data.get("edit_prod")
+        
+        cat = get_category(cat_id)
+        if cat:
+            for prod in cat["products"]:
+                if prod["id"] == prod_id:
+                    prod["price"] = new_price
+                    break
+        
+        await message.answer(
+            f"{EMOJIS['verified']} **Price Updated!**\n\n"
+            f"New price: {format_price(new_price)}\n"
+            f"(Note: This is in-memory. Edit products.json for permanent changes)",
+            reply_markup=admin_kb(),
+            parse_mode="Markdown"
+        )
+        await state.clear()
+    except ValueError:
+        await message.answer(f"{EMOJIS['cross']} Invalid price! Send a number:")
+
+
+# ==================== MAIN FUNCTION ====================
+
+async def main():
+    """Main entry point"""
+    print(f"""
+    ╔══════════════════════════════════════════════════════╗
+    ║            🚀 TOPUP STORE BD — BOT v2.0             ║
+    ║                                                      ║
+    ║   🤖 Bot: @{BOT_USERNAME}                              
+    ║   👤 Admins: {len(ADMIN_IDS)} configured                         
+    ║   📦 Products: {sum(len(c['products']) for c in get_categories())} items                       
+    ║   📂 Categories: {len(get_categories())}                                 
+    ║   💾 Database: SQLite                               
+    ║   🎨 Style: Premium (Bot API 9.4+)                  
+    ║                                                      ║
+    ║   🟢 BOT IS RUNNING...                               ║
+    ╚══════════════════════════════════════════════════════╝
+    """)
+    
+    await dp.start_polling(bot, skip_updates=True)
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
