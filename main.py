@@ -12,17 +12,6 @@
    ║          🔥 Free Fire | PUBG | MLBB | Netflix | YouTube | Crunchyroll          ║
    ║                    ⚡ Instant AI Auto-Delivery System                            ║
    ╚══════════════════════════════════════════════════════════════════════════════════╝
-   
-   ✨ Features:
-   • 8 Premium Categories with Colorful Style Buttons (primary/success/danger)
-   • Real-time Order Tracking & Auto-Delivery
-   • Wallet Balance System with Auto Top-up
-   • Full Admin Panel (Dashboard, Orders, Deliver, Broadcast)
-   • SQLite Database (no external DB needed)
-   • Premium Telegram Bot API 9.4+ Design
-   
-   📦 Deploy: python topup_bot.py
-   🔧 Requirements: aiogram>=3.10, aiofiles
 """
 
 import asyncio
@@ -692,6 +681,7 @@ class AdminStates(StatesGroup):
     editing_product_price = State()
     banning_user = State()
     unbanning_user = State()
+    restoring_db = State()
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -890,10 +880,12 @@ def admin_kb() -> InlineKeyboardMarkup:
     builder.button(text=f"{EMOJIS['pen']} Edit Products", callback_data="admin_edit_products")
     builder.button(text=f"{EMOJIS['message']} Broadcast", callback_data="admin_broadcast")
     builder.button(text=f"{EMOJIS['users']} Users ({stats['total_users']})", callback_data="admin_users")
+    builder.button(text=f"{EMOJIS['file']} Backup DB", callback_data="admin_backup", style="primary")
+    builder.button(text=f"{EMOJIS['folder']} Restore DB", callback_data="admin_restore", style="danger")
     builder.button(text=f"{EMOJIS['chart']} Full Stats", callback_data="admin_stats")
     builder.button(text=f"{EMOJIS['back']} Main Menu", callback_data="main_menu")
     
-    builder.adjust(2, 2, 2, 2, 2)
+    builder.adjust(2, 2, 2, 2, 2, 2)
     
     return builder.as_markup()
 
@@ -907,6 +899,7 @@ async def cmd_start(message: Message):
     db.add_user(user.id, user.username or "", user.first_name or "")
     db.update_user_activity(user.id)
     
+    # 🎯 ফিক্সড: 'netflix' ইমোজির পর সিঙ্গল কোটেশন মিসিং ছিল
     welcome_text = (
         f"{EMOJIS['sparkle']}{EMOJIS['sparkle']}{EMOJIS['sparkle']}"
         f" **WELCOME TO TOPUP STORE BD!** "
@@ -919,7 +912,7 @@ async def cmd_start(message: Message):
         f"{EMOJIS['bullet']} {EMOJIS['freefire']} Free Fire Diamonds\n"
         f"{EMOJIS['bullet']} {EMOJIS['pubg']} PUBG Mobile UC\n"
         f"{EMOJIS['bullet']} {EMOJIS['mlbb']} MLBB Diamonds\n"
-        f"{EMOJIS['bullet']} {EMOJIS['netflix]} Netflix, YouTube Premium, Crunchyroll\n"
+        f"{EMOJIS['bullet']} {EMOJIS['netflix']} Netflix, YouTube Premium, Crunchyroll\n"
         f"{EMOJIS['bullet']} {EMOJIS['gift']} Gift Cards & Social Media Services\n\n"
         
         f"{EMOJIS['lightning']} **Key Features:**\n"
@@ -956,7 +949,7 @@ async def cmd_admin(message: Message):
 # ==================== CALLBACK QUERY HANDLER ====================
 
 @dp.callback_query()
-async def callback_handler(call: CallbackQuery, state: FSMContext):
+async def callback_handler(call: CallbackQuery, state: FSMContext, bot: Bot):
     """Main callback handler"""
     data = call.data
     user_id = call.from_user.id
@@ -1382,10 +1375,10 @@ async def callback_handler(call: CallbackQuery, state: FSMContext):
                 f"{EMOJIS['money']} Revenue: `{format_price(stats['total_revenue'])}`\n"
                 f"{EMOJIS['wallet']} In Wallets: `{format_price(stats['total_wallet'])}`\n\n"
                 f"{EMOJIS['clock']} Pending: `{stats['pending_orders']}`\n"
-                f"{EMOJIS['gear']} Processing: `{stats['processing_orders']}`\n"
+                f"{EMOJIS['settings']} Processing: `{stats['processing_orders']}`\n"
                 f"{EMOJIS['verified']} Delivered: `{stats['delivered_orders']}`\n\n"
-                f"{EMOJIS['calendar']} Today: {stats['today_orders']} orders | {format_price(stats['today_revenue'])}\n\n"
-                f"{EMOJIS['green_circle']} **System Online**"
+                f"{EMOJIS['clock']} Today: {stats['today_orders']} orders | {format_price(stats['today_revenue'])}\n\n"
+                f"🟢 **System Online**"
             )
             await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="Markdown")
             return await call.answer()
@@ -1500,6 +1493,34 @@ async def callback_handler(call: CallbackQuery, state: FSMContext):
                 ])
             )
             await state.set_state(AdminStates.broadcasting_msg)
+            return await call.answer()
+
+        # 🚀 নতুন ফিচার: ডাটাবেজ ব্যাকআপ
+        elif action == "backup":
+            try:
+                db_file = FSInputFile(db.db_path)
+                await call.message.answer_document(
+                    document=db_file,
+                    caption=f"{EMOJIS['verified']} **Database Backup Successfully Generated!**\nDate: `{datetime.now().strftime('%Y-%m-%d %H:%M')}`",
+                    parse_mode="Markdown"
+                )
+                await call.answer("Backup sent to chat!", show_alert=True)
+            except Exception as e:
+                await call.answer(f"Failed to backup: {e}", show_alert=True)
+            return
+            
+        # 🚀 নতুন ফিচার: ডাটাবেজ রিস্টোর
+        elif action == "restore":
+            await call.message.edit_text(
+                f"{EMOJIS['warning']} **Database Restore**\n\n"
+                f"Please send the `topup_bot.db` backup file here.\n\n"
+                f"{EMOJIS['warning']} **WARNING:** This will OVERWRITE the current database completely! All existing data will be replaced by the uploaded file.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"{EMOJIS['cross']} Cancel", callback_data="main_menu")]
+                ]),
+                parse_mode="Markdown"
+            )
+            await state.set_state(AdminStates.restoring_db)
             return await call.answer()
         
         elif action == "stats":
@@ -1877,6 +1898,37 @@ async def process_trx_id(message: Message, state: FSMContext):
 
 
 # ==================== ADMIN MESSAGE HANDLERS ====================
+
+# 🚀 নতুন ফিচার হ্যান্ডলার: ডাটাবেজ রিস্টোর
+@dp.message(AdminStates.restoring_db, F.document)
+async def admin_restore_db_handler(message: Message, state: FSMContext, bot: Bot):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    
+    document = message.document
+    if not document.file_name.endswith('.db'):
+        return await message.answer(f"{EMOJIS['cross']} Invalid file! Please send a valid SQLite `.db` file (e.g., topup_bot.db).")
+    
+    await message.answer(f"{EMOJIS['clock']} Downloading and restoring database...")
+    
+    try:
+        os.makedirs(os.path.dirname(db.db_path), exist_ok=True)
+        
+        file = await bot.get_file(document.file_id)
+        await bot.download_file(file.file_path, db.db_path)
+        
+        db._init_tables() 
+        
+        await message.answer(
+            f"{EMOJIS['verified']} **Database Restored Successfully!**\n\n"
+            f"All users, balances, and orders have been updated from the backup file.",
+            reply_markup=admin_kb()
+        )
+    except Exception as e:
+        await message.answer(f"{EMOJIS['cross']} Error restoring database: {e}")
+    
+    await state.clear()
+
 
 @dp.message(AdminStates.adding_balance_user)
 async def admin_balance_user(message: Message, state: FSMContext):
@@ -2272,7 +2324,7 @@ async def main():
     ╔══════════════════════════════════════════════════════╗
     ║            🚀 TOPUP STORE BD — BOT v2.0             ║
     ║                                                      ║
-    ║   🤖 Bot: @{BOT_USERNAME}                              
+    ║   🤖 Bot: {BOT_USERNAME}                              
     ║   👤 Admins: {len(ADMIN_IDS)} configured                         
     ║   📦 Products: {sum(len(c['products']) for c in get_categories())} items                       
     ║   📂 Categories: {len(get_categories())}                                 
