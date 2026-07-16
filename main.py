@@ -39,7 +39,7 @@ from telegram.ext import (
 # 🎛️ CONFIG
 # ─────────────────────────────────────────────
 class Config:
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_BOT_TOKEN_HERE")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8897904364:AAHMdJhbzDRT9gab-WW1bpzTKpAA9L6gRNc")
     BKASH_NUMBER = os.getenv("BKASH_NUMBER", "01742958563")
     NAGAD_NUMBER = os.getenv("NAGAD_NUMBER", "01748506069")
     ROCKET_NUMBER = os.getenv("ROCKET_NUMBER", "01742958563")
