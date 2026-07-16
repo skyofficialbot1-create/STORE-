@@ -4,9 +4,9 @@ from datetime import datetime
 from uuid import uuid4
 
 try:
-    from aiogram import Bot, Dispatcher, F
+    from aiogram import Bot, Dispatcher, F, BaseMiddleware
     from aiogram.filters import Command, CommandStart
-    from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
+    from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, TelegramObject
     from aiogram.fsm.context import FSMContext
     from aiogram.fsm.state import State, StatesGroup
     from aiogram.fsm.storage.memory import MemoryStorage
@@ -109,9 +109,9 @@ class Database:
         categories = [
             ("youtube", None, "YouTube Premium", "Ad-free YouTube", "▶️", 1),
             ("netflix", None, "Netflix Premium", "Netflix Accounts", "🎬", 2),
-            ("crunchyroll", None, "Crunchyroll", "Anime Streaming", "", 3),
-            ("vpn", None, "VPN", "Premium VPN Services", "", 4),
-            ("proxy", None, "Proxy", "Proxy Services", "", 5),
+            ("crunchyroll", None, "Crunchyroll", "Anime Streaming", "🍿", 3),
+            ("vpn", None, "VPN", "Premium VPN Services", "🔐", 4),
+            ("proxy", None, "Proxy", "Proxy Services", "🌐", 5),
         ]
         for cat in categories:
             conn.execute("""INSERT INTO categories(id,parent_id,name,description,icon,sort_order) 
@@ -132,18 +132,18 @@ class Database:
             # Crunchyroll
             ("cr_1m", "crunchyroll", "🍿 1 Month", 200, 0, "email_pass", 30),
             ("cr_3m", "crunchyroll", "🍿 3 Months", 550, 0, "email_pass", 90),
-            ("cr_1y", "crunchyroll", " 1 Year", 1840, 0, "email_pass", 365),
+            ("cr_1y", "crunchyroll", "🍿 1 Year", 1840, 0, "email_pass", 365),
             # VPN - Only VPN services
-            ("vpn_express", "vpn", " ExpressVPN 1M", 350, 0, "email_pass", 30),
-            ("vpn_hma", "vpn", " HMA VPN 1M", 250, 0, "key_only", 30),
+            ("vpn_express", "vpn", "🚀 ExpressVPN 1M", 350, 0, "email_pass", 30),
+            ("vpn_hma", "vpn", "🦎 HMA VPN 1M", 250, 0, "key_only", 30),
             ("vpn_nord", "vpn", "🔐 NordVPN 1M", 320, 0, "email_pass", 30),
             ("vpn_proton", "vpn", "🔐 ProtonVPN 1M", 300, 0, "email_pass", 30),
             ("vpn_surf", "vpn", "🔐 Surfshark 1M", 280, 0, "email_pass", 30),
-            ("vpn_vanish", "vpn", " VanishVPN 1M", 260, 0, "email_pass", 30),
+            ("vpn_vanish", "vpn", "🔐 VanishVPN 1M", 260, 0, "email_pass", 30),
             # Proxy - Only Proxy services
             ("proxy_resi", "proxy", "🌐 Residential Proxy", 500, 0, "key_only", 30),
             ("proxy_dc", "proxy", "🌐 Datacenter Proxy", 300, 0, "key_only", 30),
-            ("proxy_mobile", "proxy", " Mobile Proxy", 600, 0, "key_only", 30),
+            ("proxy_mobile", "proxy", "🌐 Mobile Proxy", 600, 0, "key_only", 30),
         ]
         for prod in products:
             conn.execute("""INSERT INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) 
@@ -363,6 +363,20 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
 
+# ─── SECURITY MIDDLEWARE (INCREASED) ───
+class BanCheckMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        user = data.get("event_from_user")
+        if user:
+            u = db.get_user(user.id)
+            if u and u.get("is_banned") == 1:
+                if isinstance(event, Message):
+                    await event.answer("❌ You are banned from using this bot.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("❌ You are banned from using this bot.", show_alert=True)
+                return
+        return await handler(event, data)
+
 # ─── STATES ───
 class Order(StatesGroup):
     input = State()
@@ -373,18 +387,23 @@ class Admin(StatesGroup):
     addbal_uid = State()
     addbal_amt = State()
     deliver_oid = State()
+    deliver_file = State()  # Fixed: Missing state added
     broadcast_msg = State()
     ban_uid = State()
     unban_uid = State()
     addcat_id = State()
     addcat_name = State()
     addcat_desc = State()
+    editcat_id = State()    # Fixed: Added for category editing isolation
+    editcat_name = State()  # Fixed: Added for category editing isolation
+    editcat_desc = State()  # Fixed: Added for category editing isolation
     addprod_id = State()
     addprod_name = State()
     addprod_price = State()
     addprod_bonus = State()
     addprod_expiry = State()
     addprod_stocktype = State()
+    addprod_select_cat = State()
     editprod_pid = State()
     editprod_field = State()
     editprod_value = State()
@@ -529,8 +548,7 @@ def admin_prods_kb():
     kb = InlineKeyboardBuilder()
     for cat in db.get_categories():
         prods = db.get_products(cat["id"])
-        if prods:
-            kb.row(InlineKeyboardButton(text=f" {cat['name']} ({len(prods)})", callback_data=f"adminprods_{cat['id']}"))
+        kb.row(InlineKeyboardButton(text=f" {cat['name']} ({len(prods)})", callback_data=f"adminprods_{cat['id']}"))
     kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data="addprod_select"))
     kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
     return kb.as_markup()
@@ -734,7 +752,11 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
                 "",
                 delivery_text,
             ]
-            await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+            # Fixed Dynamic Rendering to avoid crashes during Message/Callback transitions
+            if isinstance(call_or_msg, CallbackQuery):
+                await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+            else:
+                await call_or_msg.answer("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
         else:
             db.update_order(oid, "pending")
             lines = [
@@ -744,7 +766,10 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
                 "Status: Pending (No Stock)",
                 "Admin will deliver soon",
             ]
-            await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+            if isinstance(call_or_msg, CallbackQuery):
+                await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+            else:
+                await call_or_msg.answer("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
     else:
         # Other products - pending
         db.update_order(oid, "pending")
@@ -754,11 +779,13 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
             f"Order ID: #{oid}",
             "Status: Pending Verification",
         ]
-        await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+        if isinstance(call_or_msg, CallbackQuery):
+            await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+        else:
+            await call_or_msg.answer("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
     
     # Notify admin
     user = db.get_user(uid)
-    order = db.get_order(oid)
     admin_lines = [
         "📦 *NEW ORDER*",
         "",
@@ -1095,7 +1122,7 @@ async def deliver_oid(msg: Message, state: FSMContext):
             "For VPN/Proxy: email:password or key",
         ]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
-        await state.set_state(Admin.deliver_file)
+        await state.set_state(Admin.deliver_file) # Correctly references the State now
     except:
         await msg.answer("❌ Invalid Order ID")
 
@@ -1243,6 +1270,7 @@ async def addcat_desc(msg: Message, state: FSMContext):
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
+# ─── CATEGORY EDITING HANDLERS (FIXED & ISOLATED) ───
 @dp.callback_query(lambda c: c.data.startswith("editcat_"))
 async def editcat_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1258,7 +1286,44 @@ async def editcat_start(call: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text=" Back", callback_data=f"admincat_{cat_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
-    await state.set_state(Admin.addcat_name)
+    await state.set_state(Admin.editcat_name)
+
+@dp.message(Admin.editcat_name)
+async def editcat_name_msg(msg: Message, state: FSMContext):
+    name = msg.text.strip()
+    data = await state.get_data()
+    cat_id = data["editcat_id"]
+    
+    if name.lower() != "skip":
+        with db._get_conn() as conn:
+            conn.execute("UPDATE categories SET name=? WHERE id=?", (name, cat_id))
+            conn.commit()
+    
+    lines = [
+        "Send new description (optional):",
+        "Type 'skip' to keep current",
+    ]
+    await msg.answer("\n".join(lines), parse_mode="Markdown")
+    await state.set_state(Admin.editcat_desc)
+
+@dp.message(Admin.editcat_desc)
+async def editcat_desc_msg(msg: Message, state: FSMContext):
+    desc = msg.text.strip()
+    data = await state.get_data()
+    cat_id = data["editcat_id"]
+    
+    if desc.lower() != "skip":
+        with db._get_conn() as conn:
+            conn.execute("UPDATE categories SET description=? WHERE id=?", (desc, cat_id))
+            conn.commit()
+            
+    lines = [
+        "✅ *Category Updated!*",
+        "",
+        f"ID: {cat_id}",
+    ]
+    await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
+    await state.clear()
 
 @dp.callback_query(lambda c: c.data.startswith("delcat_"))
 async def delcat(call: CallbackQuery):
@@ -1304,6 +1369,16 @@ async def admin_prods_view(call: CallbackQuery, state: FSMContext):
 async def addprod_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     cat_id = call.data[8:] if "_" in call.data else "select"
+    
+    # Fixed: If category not selected, ask admin to select from active categories list
+    if cat_id == "select":
+        kb = InlineKeyboardBuilder()
+        for cat in db.get_categories():
+            kb.row(InlineKeyboardButton(text=f"{cat.get('icon', '📦')} {cat['name']}", callback_data=f"addprodsel_{cat['id']}"))
+        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_prods"))
+        await call.message.edit_text("Select category for the new product:", reply_markup=kb.as_markup())
+        return
+        
     await state.update_data(addprod_cat=cat_id)
     
     lines = [
@@ -1313,7 +1388,24 @@ async def addprod_start(call: CallbackQuery, state: FSMContext):
         "Example: vpn_nord_1m",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_prods"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"adminprods_{cat_id}"))
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await state.set_state(Admin.addprod_id)
+
+@dp.callback_query(lambda c: c.data.startswith("addprodsel_"))
+async def addprod_select_cat(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    cat_id = call.data[11:]
+    await state.update_data(addprod_cat=cat_id)
+    
+    lines = [
+        "➕ *Add Product*",
+        "",
+        "Send product ID (no spaces):",
+        "Example: vpn_nord_1m",
+    ]
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"adminprods_{cat_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addprod_id)
 
@@ -1787,6 +1879,9 @@ async def unban_do(msg: Message, state: FSMContext):
 # ─── MAIN ──
 async def main():
     print(" Bot starting...")
+    # Registering the Security Ban Middleware
+    dp.message.outer_middleware(BanCheckMiddleware())
+    dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
