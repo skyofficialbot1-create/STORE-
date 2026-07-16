@@ -916,10 +916,10 @@ async def cmd_start(message: Message):
         f"premium game top-up & digital services store.\n\n"
         
         f"{EMOJIS['rocket']} **What we offer:**\n"
-        f"{EMOJIS['bullet']} {EMOJIS['fire']} Free Fire Diamonds\n"
+        f"{EMOJIS['bullet']} {EMOJIS['freefire']} Free Fire Diamonds\n"
         f"{EMOJIS['bullet']} {EMOJIS['pubg']} PUBG Mobile UC\n"
-        f"{EMOJIS['bullet']} {EMOJIS['dragon']} MLBB Diamonds\n"
-        f"{EMOJIS['bullet']} {EMOJIS['movie']} Netflix, YouTube Premium, Crunchyroll\n"
+        f"{EMOJIS['bullet']} {EMOJIS['mlbb']} MLBB Diamonds\n"
+        f"{EMOJIS['bullet']} {EMOJIS['netflic']} Netflix, YouTube Premium, Crunchyroll\n"
         f"{EMOJIS['bullet']} {EMOJIS['gift']} Gift Cards & Social Media Services\n\n"
         
         f"{EMOJIS['lightning']} **Key Features:**\n"
