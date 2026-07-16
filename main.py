@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-SKY TopUp Telegram Bot — Elite Experience v5.0
-──────────────────────────────────────────────
-No email. No OTP. Pure click‑powered elegance.
+SKY TopUp Telegram Bot — Ultimate Enterprise v5.1
+────────────────────────────────────────────────
+• Category‑specific workflows (Game, VPN, Streaming)
+• VPN / Streaming accounts auto‑delivery with email, password, activation key
+• Duration‑based expiry calculation & display
+• Stock management for digital goods
+• Click‑driven recharge with preset amounts
+• Full admin panel (orders, deposits, balance, products, stock, DB backup/restore, broadcast, search)
+• Beautiful UI, no email/OTP hassles
 """
 
-import logging, os, json, random, string, sqlite3, hashlib, re, secrets, asyncio, shutil
+import logging, os, json, sqlite3, hashlib, secrets, asyncio, shutil
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from typing import Optional
@@ -22,9 +28,9 @@ from telegram.ext import (
     filters,
 )
 
-# ─────────────────────────────────────────────────────────────────
-# 🎛️ PREMIUM CONFIGURATION
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 🎛️ CONFIG
+# ─────────────────────────────────────────────
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk")
     BKASH_NUMBER = os.getenv("BKASH_NUMBER", "01742958563")
@@ -33,11 +39,8 @@ class Config:
     MIN_DEPOSIT = 50.0
     MIN_PASSWORD_LENGTH = 6
     DB_PATH = os.getenv("DB_PATH", "skytopup.db")
-    ADMIN_USER_ID = 7689218221
+    ADMIN_USER_ID = 5904838487
 
-# ─────────────────────────────────────────────────────────────────
-# 📝 LOGGING
-# ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
     level=logging.INFO,
@@ -45,9 +48,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("SkyTopUp")
 
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # 🗄️ DATABASE
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 @contextmanager
 def db():
     conn = sqlite3.connect(Config.DB_PATH)
@@ -68,7 +71,6 @@ def init_db():
     os.makedirs(os.path.dirname(Config.DB_PATH) or ".", exist_ok=True)
     with db() as conn:
         c = conn.cursor()
-        # users (no email)
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,28 +86,29 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # orders
         c.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 order_id TEXT UNIQUE NOT NULL,
                 telegram_id TEXT NOT NULL,
+                product_id INTEGER,
                 product_name TEXT NOT NULL,
                 package TEXT NOT NULL,
                 price REAL NOT NULL,
                 user_details TEXT,
+                delivered_details TEXT,
                 status TEXT DEFAULT '⏳ Pending',
                 admin_note TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP
             )
         """)
-        # products
         c.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 category TEXT NOT NULL,
+                product_type TEXT DEFAULT 'game',
                 icon TEXT DEFAULT '📦',
                 description TEXT,
                 options TEXT,
@@ -113,7 +116,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # deposit requests
         c.execute("""
             CREATE TABLE IF NOT EXISTS deposit_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,7 +128,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # settings
         c.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -135,25 +136,70 @@ def init_db():
         """)
         c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', 'OFF')")
 
-        # seed products
+        # Stock table for VPN/streaming accounts
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS account_stock (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER,
+                email TEXT NOT NULL,
+                password TEXT NOT NULL,
+                activation_key TEXT,
+                status TEXT DEFAULT 'available',
+                order_id TEXT,
+                sold_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # seed products if empty
         c.execute("SELECT COUNT(*) FROM products")
         if c.fetchone()[0] == 0:
             c.executemany(
-                "INSERT INTO products (name, category, icon, description, options) VALUES (?,?,?,?,?)",
+                "INSERT INTO products (name, category, product_type, icon, description, options) VALUES (?,?,?,?,?,?)",
                 [
-                    ("Free Fire Diamonds", "game", "💎",
+                    ("Free Fire Diamonds", "game", "game", "💎",
                      "ফ্রি ফায়ার ডায়মন্ড টপ-আপ",
                      json.dumps([
-                         {"amount": "💎 100 Diamonds", "price": 100},
-                         {"amount": "💎 310 Diamonds", "price": 300},
-                         {"amount": "💎 520 Diamonds", "price": 500},
+                         {"amount": "💎 100 Diamonds", "price": 100, "valid_days": 0},
+                         {"amount": "💎 310 Diamonds", "price": 300, "valid_days": 0},
+                         {"amount": "💎 520 Diamonds", "price": 500, "valid_days": 0},
                      ])),
-                    ("Netflix Premium", "subscribe", "🎬",
+                    ("Netflix Premium", "subscribe", "streaming", "🎬",
                      "নেটফ্লিক্স প্রিমিয়াম সাবস্ক্রিপশন",
                      json.dumps([
-                         {"amount": "🎬 1 Month Screen", "price": 200},
-                         {"amount": "🎬 3 Months Premium", "price": 500},
-                     ]))
+                         {"amount": "🎬 1 Month Screen", "price": 200, "valid_days": 30},
+                         {"amount": "🎬 3 Months Premium", "price": 500, "valid_days": 90},
+                     ])),
+                    ("Nord VPN", "vpn", "vpn", "🔐",
+                     "নর্ড ভিপিএন প্রিমিয়াম অ্যাকাউন্ট",
+                     json.dumps([
+                         {"amount": "🔐 1 Month", "price": 150, "valid_days": 30},
+                         {"amount": "🔐 3 Months", "price": 400, "valid_days": 90},
+                     ])),
+                    ("IPVanish VPN", "vpn", "vpn", "🛡️",
+                     "আইপি ভ্যানিশ ভিপিএন",
+                     json.dumps([
+                         {"amount": "🛡️ 1 Month", "price": 180, "valid_days": 30},
+                         {"amount": "🛡️ 3 Months", "price": 450, "valid_days": 90},
+                     ])),
+                    ("Express VPN", "vpn", "vpn", "⚡",
+                     "এক্সপ্রেস ভিপিএন ফাস্ট কানেকশন",
+                     json.dumps([
+                         {"amount": "⚡ 1 Month", "price": 200, "valid_days": 30},
+                         {"amount": "⚡ 3 Months", "price": 550, "valid_days": 90},
+                     ])),
+                    ("HMA VPN", "vpn", "vpn", "🔑",
+                     "এইচএমএ ভিপিএন (অ্যাক্টিভেশন কী সহ)",
+                     json.dumps([
+                         {"amount": "🔑 1 Month", "price": 170, "valid_days": 30},
+                         {"amount": "🔑 3 Months", "price": 420, "valid_days": 90},
+                     ])),
+                    ("Crunchyroll Premium", "streaming", "streaming", "🍿",
+                     "ক্রাঞ্চিরোল প্রিমিয়াম অ্যানিমে স্ট্রিমিং",
+                     json.dumps([
+                         {"amount": "🍿 1 Month", "price": 100, "valid_days": 30},
+                         {"amount": "🍿 3 Months", "price": 250, "valid_days": 90},
+                     ])),
                 ]
             )
     logger.info("🌟 Database ready.")
@@ -177,9 +223,9 @@ def is_admin(user_row) -> bool:
 def hash_password(password: str) -> str:
     return hashlib.sha256(("SKY_TOPUP_2024_v2" + password).encode()).hexdigest()
 
-# ─────────────────────────────────────────────────────────────────
-# 🎨 PREMIUM UI BUILDER
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 🎨 PREMIUM UI
+# ─────────────────────────────────────────────
 class UIBuilder:
     @staticmethod
     def safe_text(text: str) -> str:
@@ -221,29 +267,37 @@ async def edit_or_reply(update: Update, text: str, reply_markup=None, parse_mode
             pass
     await smart_reply(update, text, reply_markup, parse_mode)
 
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # 🔹 CONVERSATION STATES
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 REG_PASSWORD, REG_CONFIRM_PASSWORD = range(2)
 ORDER_DETAILS_STATE = 100
 ADD_MONEY_AMOUNT, ADD_MONEY_TRX = range(10, 12)
 ADMIN_SET_BAL_ID, ADMIN_SET_BAL_AMT = range(20, 22)
-ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_DESC, ADMIN_ADD_PROD_OPTS = range(30, 34)
-ADMIN_RESTORE_DB_STATE = 40
-ADMIN_BROADCAST_MSG = 50
-ADMIN_SEARCH_USER = 60
+ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_TYPE, ADMIN_ADD_PROD_DESC, ADMIN_ADD_PROD_OPTS = range(30, 35)
+ADMIN_ADD_STOCK_PROD, ADMIN_ADD_STOCK_EMAIL, ADMIN_ADD_STOCK_PASSWORD, ADMIN_ADD_STOCK_ACTIVATION = range(40, 44)
+ADMIN_RESTORE_DB_STATE = 50
+ADMIN_BROADCAST_MSG = 60
+ADMIN_SEARCH_USER = 70
 
-# ─────────────────────────────────────────────────────────────────
-# 👋 START & REGISTRATION (No email/OTP)
-# ─────────────────────────────────────────────────────────────────
+DEPOSIT_AMOUNTS = [50, 100, 200, 500, 1000]
+
+def deposit_amount_keyboard() -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(f"৳{a}", callback_data=f"depamt_{a}") for a in DEPOSIT_AMOUNTS]
+    kb = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+    kb.append([InlineKeyboardButton("✏️ Custom Amount", callback_data="depamt_custom")])
+    kb.append([InlineKeyboardButton("⬅️ Cancel", callback_data="back_main")])
+    return InlineKeyboardMarkup(kb)
+
+# ─────────────────────────────────────────────
+# 👋 START & REGISTRATION
+# ─────────────────────────────────────────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_row = get_user(str(user.id))
-
     if is_maintenance() and not (user_row and is_admin(user_row)):
         await update.message.reply_text("⚠️ <b>System Maintenance</b>\n\nWe'll be back shortly.", parse_mode=ParseMode.HTML)
         return ConversationHandler.END
-
     if user_row:
         with db() as conn:
             conn.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE telegram_id = ?", (str(user.id),))
@@ -259,13 +313,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await smart_reply(update, welcome, UIBuilder.main_menu(user_row))
         return ConversationHandler.END
-
-    # new user
     welcome = (
         "✨ <b>SKY TOPUP · PREMIUM</b> ✨\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Hello, <b>{UIBuilder.safe_text(user.first_name or 'User')}</b>! 👋\n\n"
-        "To secure your account, create a password 🔐\n"
+        "Create a secure password to get started 🔐\n"
         "<i>(minimum 6 characters)</i>\n\n"
         "👉 <b>Type your password now:</b>"
     )
@@ -304,13 +356,14 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Cancelled.")
     return ConversationHandler.END
 
-# ─────────────────────────────────────────────────────────────────
-# 🛒 SHOP
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 🛒 SHOP & ORDER (game/vpn/streaming)
+# ─────────────────────────────────────────────
 async def show_categories_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🎮 Game Top‑Up", callback_data="category_game")],
-        [InlineKeyboardButton("🍿 OTT & Subs", callback_data="category_subscribe")],
+        [InlineKeyboardButton("🔐 VPN Premium", callback_data="category_vpn")],
+        [InlineKeyboardButton("🍿 Streaming", callback_data="category_streaming")],
         [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")],
     ]
     await edit_or_reply(update, "📂 <b>Product Categories</b>", InlineKeyboardMarkup(keyboard))
@@ -346,9 +399,6 @@ async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         InlineKeyboardMarkup(keyboard)
     )
 
-# ─────────────────────────────────────────────────────────────────
-# 📋 ORDER
-# ─────────────────────────────────────────────────────────────────
 async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -368,36 +418,45 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
             f"➕ Recharge your wallet first."
         )
         return ConversationHandler.END
+    context.user_data["order_product_id"] = product_id
     context.user_data["order_product_name"] = product["name"]
     context.user_data["order_package"] = selected_package
-    await query.message.reply_text(
-        f"🛒 <b>Confirm Checkout</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 {product['name']}\n"
-        f"📎 {selected_package['amount']}\n"
-        f"💰 Price: ৳{price}\n\n"
-        f"👉 Enter your <b>Game ID / UID / Details</b> (min 3 chars):"
-    )
-    return ORDER_DETAILS_STATE
+    context.user_data["order_product_type"] = product["product_type"]
 
-async def receive_order_details_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    details = update.message.text.strip()
-    if len(details) < 3:
-        await update.message.reply_text("❌ Too short! Provide a valid ID:")
+    if product["product_type"] == "game":
+        await query.message.reply_text(
+            f"🛒 <b>Confirm Checkout</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📦 {product['name']}\n"
+            f"📎 {selected_package['amount']}\n"
+            f"💰 Price: ৳{price}\n\n"
+            f"👉 Enter your <b>Game ID / UID</b> (min 3 chars):"
+        )
         return ORDER_DETAILS_STATE
+    else:  # vpn / streaming – no need user input, place order directly
+        return await place_order_for_digital_product(update, context)
+
+async def place_order_for_digital_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    product_id = context.user_data["order_product_id"]
     product_name = context.user_data["order_product_name"]
     package = context.user_data["order_package"]
     price = package["price"]
     tid = str(update.effective_user.id)
     order_id = f"SKY-{int(datetime.now().timestamp())}-{secrets.token_hex(2).upper()}"
+    valid_days = package.get("valid_days", 0)
+    expiry_date = None
+    if valid_days > 0:
+        expiry_date = (datetime.now() + timedelta(days=valid_days)).strftime("%d %b %Y")
+
     with db() as conn:
         conn.execute(
-            "INSERT INTO orders (order_id, telegram_id, product_name, package, price, user_details) VALUES (?,?,?,?,?,?)",
-            (order_id, tid, product_name, package["amount"], price, details)
+            "INSERT INTO orders (order_id, telegram_id, product_id, product_name, package, price, user_details, status) VALUES (?,?,?,?,?,?,?,'⏳ Pending')",
+            (order_id, tid, product_id, product_name, package["amount"], price, "")
         )
         conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, tid))
     context.user_data.clear()
-    await update.message.reply_text(
+
+    await smart_reply(update,
         f"🎉 <b>Order Placed!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 <code>{order_id}</code>\n"
@@ -406,13 +465,13 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
     )
     # notify admin
     try:
-        await context.bot.send_message(
+        await update.effective_chat.bot.send_message(
             Config.ADMIN_USER_ID,
             f"🔔 <b>New Order</b>\n"
             f"👤 {tid}\n"
             f"🆔 <code>{order_id}</code>\n"
             f"📦 {product_name} ({package['amount']})\n"
-            f"ℹ️ <code>{details}</code>",
+            f"Type: {context.user_data.get('order_product_type','?')}",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}"),
@@ -423,19 +482,55 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
         logger.error(f"Admin notify: {e}")
     return ConversationHandler.END
 
-# ─────────────────────────────────────────────────────────────────
-# 💰 DEPOSIT (Clickable Amounts)
-# ─────────────────────────────────────────────────────────────────
-DEPOSIT_AMOUNTS = [50, 100, 200, 500, 1000]
+async def receive_order_details_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    details = update.message.text.strip()
+    if len(details) < 3:
+        await update.message.reply_text("❌ Too short! Provide a valid ID:")
+        return ORDER_DETAILS_STATE
+    context.user_data["order_user_details"] = details
 
-def deposit_amount_keyboard() -> InlineKeyboardMarkup:
-    buttons = [InlineKeyboardButton(f"৳{a}", callback_data=f"depamt_{a}") for a in DEPOSIT_AMOUNTS]
-    # split into rows of 2
-    kb = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
-    kb.append([InlineKeyboardButton("✏️ Custom Amount", callback_data="depamt_custom")])
-    kb.append([InlineKeyboardButton("⬅️ Cancel", callback_data="back_main")])
-    return InlineKeyboardMarkup(kb)
+    # for game products we place order with user details
+    product_id = context.user_data["order_product_id"]
+    product_name = context.user_data["order_product_name"]
+    package = context.user_data["order_package"]
+    price = package["price"]
+    tid = str(update.effective_user.id)
+    order_id = f"SKY-{int(datetime.now().timestamp())}-{secrets.token_hex(2).upper()}"
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO orders (order_id, telegram_id, product_id, product_name, package, price, user_details, status) VALUES (?,?,?,?,?,?,?,'⏳ Pending')",
+            (order_id, tid, product_id, product_name, package["amount"], price, details)
+        )
+        conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, tid))
+    context.user_data.clear()
+    await update.message.reply_text(
+        f"🎉 <b>Order Placed!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 <code>{order_id}</code>\n"
+        f"💰 Deducted: ৳{price}\n"
+        f"⚡ Admin will process within 5–15 mins."
+    )
+    try:
+        await update.effective_chat.bot.send_message(
+            Config.ADMIN_USER_ID,
+            f"🔔 <b>New Order</b>\n"
+            f"👤 {tid}\n"
+            f"🆔 <code>{order_id}</code>\n"
+            f"📦 {product_name} ({package['amount']})\n"
+            f"ℹ️ UID: <code>{details}</code>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}"),
+                 InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
+            ])
+        )
+    except Exception as e:
+        logger.error(f"Admin notify: {e}")
+    return ConversationHandler.END
 
+# ─────────────────────────────────────────────
+# 💰 DEPOSIT (with preset buttons)
+# ─────────────────────────────────────────────
 async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📱 bKash", callback_data="recharge_bkash"),
@@ -447,13 +542,12 @@ async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, method: str):
     numbers = {"bkash": Config.BKASH_NUMBER, "nagad": Config.NAGAD_NUMBER, "rocket": Config.ROCKET_NUMBER}
-    number = numbers[method]
     context.user_data["recharge_method"] = method
     await edit_or_reply(
         update,
         f"💳 <b>{method.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"Send money to: <code>{number}</code>\n"
+        f"Send money to: <code>{numbers[method]}</code>\n"
         f"Then select the amount you sent:",
         deposit_amount_keyboard()
     )
@@ -512,7 +606,7 @@ async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"⚡ Verification in 2–5 minutes."
     )
     try:
-        await context.bot.send_message(
+        await update.effective_chat.bot.send_message(
             Config.ADMIN_USER_ID,
             f"🔔 <b>New Deposit</b>\n"
             f"👤 {tid}\n"
@@ -528,9 +622,9 @@ async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error(f"Admin notify: {e}")
     return ConversationHandler.END
 
-# ─────────────────────────────────────────────────────────────────
-# 🛡️ ADMIN PANEL
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 🛡️ ADMIN PANEL & ORDER PROCESSING
+# ─────────────────────────────────────────────
 async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(get_user(str(update.effective_user.id))):
         await edit_or_reply(update, "❌ Access denied.")
@@ -546,6 +640,8 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
          InlineKeyboardButton("💰 Deposits", callback_data="adm_view_deposits")],
         [InlineKeyboardButton("👤 Edit Balance", callback_data="adm_balance_set"),
          InlineKeyboardButton("📦 Add Product", callback_data="adm_product_add")],
+        [InlineKeyboardButton("➕ Add Stock", callback_data="adm_add_stock"),
+         InlineKeyboardButton("🗄️ Stock List", callback_data="adm_view_stock")],
         [InlineKeyboardButton("📤 Backup DB", callback_data="adm_backup_db"),
          InlineKeyboardButton("📥 Restore DB", callback_data="adm_restore_db")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"),
@@ -564,7 +660,6 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
         InlineKeyboardMarkup(keyboard)
     )
 
-# admin callbacks (approve/reject, etc.)
 async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -606,7 +701,7 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
             await query.message.reply_text(
                 f"🆔 <code>{o['order_id']}</code>\n"
                 f"👤 {o['telegram_id']}  |  📦 {o['product_name']} ({o['package']})\n"
-                f"ℹ️ <code>{o['user_details']}</code>",
+                f"ℹ️ {o['user_details'] or 'No details'}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{o['order_id']}"),
@@ -630,62 +725,32 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
                      InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['request_id']}")]
                 ])
             )
+    elif data == "adm_view_stock":
+        with db() as conn:
+            stock = conn.execute("SELECT a.*, p.name FROM account_stock a JOIN products p ON a.product_id = p.id WHERE a.status='available' LIMIT 20").fetchall()
+        if not stock:
+            await query.message.reply_text("📭 No stock available.")
+            return
+        msg = "🗄️ <b>Available Stock</b>\n"
+        for s in stock:
+            msg += f"• {s['name']} | {s['email']} | status: {s['status']}\n"
+        await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
     # approve/reject order
     elif data.startswith("adm_ord_approve_"):
         oid = data.replace("adm_ord_approve_", "")
-        with db() as conn:
-            order = conn.execute("SELECT * FROM orders WHERE order_id=? AND status='⏳ Pending'", (oid,)).fetchone()
-            if not order:
-                await query.message.edit_text("⚠️ Already processed.")
-                return
-            conn.execute("UPDATE orders SET status='✅ Completed' WHERE order_id=?", (oid,))
-        await query.message.edit_text(f"✅ Order {oid} completed.")
-        try:
-            await context.bot.send_message(order["telegram_id"], f"🎉 Your order <code>{oid}</code> is complete!")
-        except: pass
-
+        await process_order_approval(update, context, oid, approve=True)
     elif data.startswith("adm_ord_reject_"):
         oid = data.replace("adm_ord_reject_", "")
-        with db() as conn:
-            order = conn.execute("SELECT * FROM orders WHERE order_id=? AND status='⏳ Pending'", (oid,)).fetchone()
-            if not order:
-                await query.message.edit_text("⚠️ Already processed.")
-                return
-            conn.execute("UPDATE orders SET status='❌ Rejected' WHERE order_id=?", (oid,))
-            conn.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (order["price"], order["telegram_id"]))
-        await query.message.edit_text(f"❌ Order {oid} rejected (refunded).")
-        try:
-            await context.bot.send_message(order["telegram_id"], f"❌ Order <code>{oid}</code> rejected. ৳{order['price']} refunded.")
-        except: pass
+        await process_order_approval(update, context, oid, approve=False)
 
     # approve/reject deposit
     elif data.startswith("adm_dep_approve_"):
         rid = data.replace("adm_dep_approve_", "")
-        with db() as conn:
-            dep = conn.execute("SELECT * FROM deposit_requests WHERE request_id=? AND status='⏳ Pending'", (rid,)).fetchone()
-            if not dep:
-                await query.message.edit_text("⚠️ Already processed.")
-                return
-            conn.execute("UPDATE deposit_requests SET status='✅ Approved' WHERE request_id=?", (rid,))
-            conn.execute("UPDATE users SET balance=balance+? WHERE telegram_id=?", (dep["amount"], dep["telegram_id"]))
-        await query.message.edit_text(f"✅ Deposit {rid} approved.")
-        try:
-            await context.bot.send_message(dep["telegram_id"], f"💰 ৳{dep['amount']} added to your wallet.")
-        except: pass
-
+        await process_deposit(update, context, rid, approve=True)
     elif data.startswith("adm_dep_reject_"):
         rid = data.replace("adm_dep_reject_", "")
-        with db() as conn:
-            dep = conn.execute("SELECT * FROM deposit_requests WHERE request_id=? AND status='⏳ Pending'", (rid,)).fetchone()
-            if not dep:
-                await query.message.edit_text("⚠️ Already processed.")
-                return
-            conn.execute("UPDATE deposit_requests SET status='❌ Rejected' WHERE request_id=?", (rid,))
-        await query.message.edit_text(f"❌ Deposit {rid} rejected.")
-        try:
-            await context.bot.send_message(dep["telegram_id"], "❌ Your recharge was rejected. Contact support.")
-        except: pass
+        await process_deposit(update, context, rid, approve=False)
 
     elif data == "adm_broadcast":
         await query.message.reply_text("📢 Type the message to broadcast:")
@@ -694,44 +759,208 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text("🔍 Enter Telegram ID of the user:")
         return ADMIN_SEARCH_USER
 
-# broadcast / search handlers
-async def broadcast_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
-    text = update.message.text
+async def process_order_approval(update: Update, context: ContextTypes.DEFAULT_TYPE, order_id: str, approve: bool):
     with db() as conn:
-        users = conn.execute("SELECT telegram_id FROM users").fetchall()
-    sent = 0
-    for u in users:
-        try:
-            await context.bot.send_message(u["telegram_id"], text)
-            sent += 1
-        except: pass
-    await update.message.reply_text(f"✅ Broadcast sent to {sent}/{len(users)} users.")
-    return ConversationHandler.END
+        order = conn.execute("SELECT * FROM orders WHERE order_id=? AND status='⏳ Pending'", (order_id,)).fetchone()
+        if not order:
+            await edit_or_reply(update, f"⚠️ Order {order_id} already processed.")
+            return
+        if approve:
+            conn.execute("UPDATE orders SET status='✅ Completed' WHERE order_id=?", (order_id,))
+            await edit_or_reply(update, f"✅ Order {order_id} completed.")
+            # If it's a digital product, try to auto-deliver account
+            if order["product_id"]:
+                product = conn.execute("SELECT product_type FROM products WHERE id=?", (order["product_id"],)).fetchone()
+                if product and product["product_type"] in ("vpn", "streaming"):
+                    stock = conn.execute("SELECT * FROM account_stock WHERE product_id=? AND status='available' LIMIT 1", (order["product_id"],)).fetchone()
+                    if stock:
+                        conn.execute("UPDATE account_stock SET status='sold', order_id=?, sold_at=CURRENT_TIMESTAMP WHERE id=?",
+                                     (order_id, stock["id"]))
+                        # calculate expiry
+                        options = json.loads(conn.execute("SELECT options FROM products WHERE id=?", (order["product_id"],)).fetchone()["options"])
+                        pkg = next((o for o in options if o["amount"] == order["package"]), None)
+                        valid_days = pkg.get("valid_days", 30) if pkg else 30
+                        expiry_date = (datetime.now() + timedelta(days=valid_days)).strftime("%d %b %Y")
+                        details_msg = (
+                            f"📧 <b>Email:</b> <code>{stock['email']}</code>\n"
+                            f"🔑 <b>Password:</b> <code>{stock['password']}</code>"
+                        )
+                        if stock["activation_key"]:
+                            details_msg += f"\n🔐 <b>Activation Key:</b> <code>{stock['activation_key']}</code>"
+                        details_msg += f"\n📅 <b>Expires:</b> {expiry_date}"
+                        conn.execute("UPDATE orders SET delivered_details=? WHERE order_id=?", (details_msg, order_id))
+                        try:
+                            await context.bot.send_message(
+                                order["telegram_id"],
+                                f"🎉 <b>Your order has been delivered!</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━\n"
+                                f"{details_msg}\n\n"
+                                f"Enjoy your premium service! ✨",
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Delivery notify failed: {e}")
+                    else:
+                        # no stock – notify admin
+                        await context.bot.send_message(
+                            Config.ADMIN_USER_ID,
+                            f"⚠️ <b>No stock available</b> for order {order_id} ({order['product_name']}). Please add stock manually.",
+                            parse_mode=ParseMode.HTML
+                        )
+        else:
+            conn.execute("UPDATE orders SET status='❌ Rejected' WHERE order_id=?", (order_id,))
+            conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (order["price"], order["telegram_id"]))
+            await edit_or_reply(update, f"❌ Order {order_id} rejected (refunded).")
+            try:
+                await context.bot.send_message(order["telegram_id"], f"❌ Order <code>{order_id}</code> rejected. ৳{order['price']} refunded.", parse_mode=ParseMode.HTML)
+            except: pass
 
-async def search_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
-    q = update.message.text.strip()
-    user = get_user(q)  # search by telegram_id
-    if not user:
-        await update.message.reply_text("❌ User not found.")
-        return ConversationHandler.END
-    info = (
-        f"👤 <b>User Info</b>\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"🆔 <code>{user['telegram_id']}</code>\n"
-        f"👤 {user['name']}\n"
-        f"💵 ৳{user['balance']:.2f}\n"
-        f"🏅 {user['rank']}\n"
-        f"🎁 {user['reward_points']} pts\n"
-        f"📅 Joined: {user['created_at']}"
+async def process_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE, request_id: str, approve: bool):
+    with db() as conn:
+        dep = conn.execute("SELECT * FROM deposit_requests WHERE request_id=? AND status='⏳ Pending'", (request_id,)).fetchone()
+        if not dep:
+            await edit_or_reply(update, f"⚠️ Request {request_id} already processed.")
+            return
+        if approve:
+            conn.execute("UPDATE deposit_requests SET status='✅ Approved' WHERE request_id=?", (request_id,))
+            conn.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (dep["amount"], dep["telegram_id"]))
+            await edit_or_reply(update, f"✅ Deposit {request_id} approved.")
+            try:
+                await context.bot.send_message(dep["telegram_id"], f"💰 ৳{dep['amount']} added to your wallet.")
+            except: pass
+        else:
+            conn.execute("UPDATE deposit_requests SET status='❌ Rejected' WHERE request_id=?", (request_id,))
+            await edit_or_reply(update, f"❌ Deposit {request_id} rejected.")
+            try:
+                await context.bot.send_message(dep["telegram_id"], "❌ Your recharge was rejected. Contact support.")
+            except: pass
+
+# ─────────────────────────────────────────────
+# ➕ ADMIN PRODUCT ADDITION (with type & valid_days)
+# ─────────────────────────────────────────────
+async def start_product_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    kb = [
+        [InlineKeyboardButton("Game", callback_data="prodtype_game"),
+         InlineKeyboardButton("VPN", callback_data="prodtype_vpn"),
+         InlineKeyboardButton("Streaming", callback_data="prodtype_streaming")]
+    ]
+    await update.callback_query.message.reply_text("📂 Select product type:", reply_markup=InlineKeyboardMarkup(kb))
+    return ADMIN_ADD_PROD_TYPE
+
+async def prod_type_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ptype = query.data.split("_")[1]  # game, vpn, streaming
+    context.user_data["new_prod_type"] = ptype
+    # choose category based on type
+    cat_map = {"game": "game", "vpn": "vpn", "streaming": "streaming"}
+    context.user_data["new_prod_cat"] = cat_map[ptype]
+    await query.message.reply_text("📦 Enter the <b>product name</b> (e.g., Express VPN):")
+    return ADMIN_ADD_PROD_NAME
+
+async def prod_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["new_prod_name"] = update.message.text.strip()
+    await update.message.reply_text("📝 Enter a <b>short description</b>:")
+    return ADMIN_ADD_PROD_DESC
+
+async def prod_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["new_prod_desc"] = update.message.text.strip()
+    await update.message.reply_text(
+        "💎 Now enter the <b>packages in JSON</b>:\n"
+        "Each package must have <code>amount</code>, <code>price</code>, <code>valid_days</code>\n"
+        "Example:\n"
+        '<code>[{"amount":"1 Month","price":150,"valid_days":30},{"amount":"3 Months","price":400,"valid_days":90}]</code>'
     )
-    await update.message.reply_text(info, parse_mode=ParseMode.HTML)
+    return ADMIN_ADD_PROD_OPTS
+
+async def prod_opts_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw = update.message.text.strip()
+    try:
+        opts = json.loads(raw)
+        for o in opts:
+            if not all(k in o for k in ("amount","price","valid_days")):
+                raise ValueError("Missing fields")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Invalid JSON: {e}\nPlease try again:")
+        return ADMIN_ADD_PROD_OPTS
+    ptype = context.user_data["new_prod_type"]
+    cat = context.user_data["new_prod_cat"]
+    name = context.user_data["new_prod_name"]
+    desc = context.user_data["new_prod_desc"]
+    icon = {"game":"🎮","vpn":"🔐","streaming":"🍿"}.get(ptype,"📦")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO products (name, category, product_type, icon, description, options) VALUES (?,?,?,?,?,?)",
+            (name, cat, ptype, icon, desc, raw)
+        )
+    context.user_data.clear()
+    await update.message.reply_text("✅ Product added successfully!")
     return ConversationHandler.END
 
-# ─────────────────────────────────────────────────────────────────
-# ⚖️ ADMIN BALANCE EDIT
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# ➕ ADMIN STOCK ADDITION
+# ─────────────────────────────────────────────
+async def start_stock_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    with db() as conn:
+        products = conn.execute("SELECT id, name FROM products WHERE product_type IN ('vpn','streaming')").fetchall()
+    if not products:
+        await update.callback_query.message.reply_text("❌ No VPN/Streaming products exist.")
+        return ConversationHandler.END
+    kb = [[InlineKeyboardButton(p["name"], callback_data=f"stockprod_{p['id']}")] for p in products]
+    kb.append([InlineKeyboardButton("❌ Cancel", callback_data="back_main")])
+    await update.callback_query.message.reply_text("📦 Select the product to add stock for:", reply_markup=InlineKeyboardMarkup(kb))
+    return ADMIN_ADD_STOCK_PROD
+
+async def stock_prod_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    prod_id = int(query.data.split("_")[1])
+    context.user_data["stock_product_id"] = prod_id
+    await query.message.reply_text("📧 Enter the <b>email</b> for this account:")
+    return ADMIN_ADD_STOCK_EMAIL
+
+async def stock_email_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["stock_email"] = update.message.text.strip()
+    await update.message.reply_text("🔑 Enter the <b>password</b>:")
+    return ADMIN_ADD_STOCK_PASSWORD
+
+async def stock_password_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["stock_password"] = update.message.text.strip()
+    with db() as conn:
+        prod = conn.execute("SELECT name FROM products WHERE id=?", (context.user_data["stock_product_id"],)).fetchone()
+    if prod and "hma" in prod["name"].lower():
+        await update.message.reply_text("🔐 This product requires an <b>activation key</b>. Please enter it (or type 'skip'):")
+        return ADMIN_ADD_STOCK_ACTIVATION
+    else:
+        # save directly
+        return await save_stock(update, context)
+
+async def stock_activation_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    key = update.message.text.strip()
+    if key.lower() == "skip":
+        key = None
+    context.user_data["stock_activation_key"] = key
+    return await save_stock(update, context)
+
+async def save_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pid = context.user_data.get("stock_product_id")
+    email = context.user_data.get("stock_email")
+    password = context.user_data.get("stock_password")
+    activation_key = context.user_data.get("stock_activation_key")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO account_stock (product_id, email, password, activation_key) VALUES (?,?,?,?)",
+            (pid, email, password, activation_key)
+        )
+    context.user_data.clear()
+    await update.message.reply_text("✅ Stock added successfully!")
+    return ConversationHandler.END
+
+# ─────────────────────────────────────────────
+# 👤 BALANCE EDIT, RESTORE, BROADCAST, SEARCH
+# ─────────────────────────────────────────────
 async def start_balance_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("👤 Enter the Telegram ID:")
@@ -762,52 +991,6 @@ async def bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Balance updated to ৳{amt:.2f}")
     return ConversationHandler.END
 
-# ─────────────────────────────────────────────────────────────────
-# ➕ ADD PRODUCT CONVERSATION
-# ─────────────────────────────────────────────────────────────────
-async def start_product_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    kb = [[InlineKeyboardButton("Game", callback_data="cat_sel_game"),
-           InlineKeyboardButton("Subscribe", callback_data="cat_sel_subscribe")]]
-    await update.callback_query.message.reply_text("📂 Select category:", reply_markup=InlineKeyboardMarkup(kb))
-    return ADMIN_ADD_PROD_CAT
-
-async def prod_cat_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    context.user_data["new_prod_cat"] = "game" if "game" in update.callback_query.data else "subscribe"
-    await update.callback_query.message.reply_text("📦 Product name:")
-    return ADMIN_ADD_PROD_NAME
-
-async def prod_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_prod_name"] = update.message.text.strip()
-    await update.message.reply_text("📝 Description:")
-    return ADMIN_ADD_PROD_DESC
-
-async def prod_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_prod_desc"] = update.message.text.strip()
-    await update.message.reply_text("💎 JSON options:\n<code>[{\"amount\":\"...\",\"price\":...}]</code>")
-    return ADMIN_ADD_PROD_OPTS
-
-async def prod_opts_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip()
-    try:
-        json.loads(raw)
-    except:
-        await update.message.reply_text("❌ Invalid JSON. Try again:")
-        return ADMIN_ADD_PROD_OPTS
-    cat = context.user_data["new_prod_cat"]
-    name = context.user_data["new_prod_name"]
-    desc = context.user_data["new_prod_desc"]
-    with db() as conn:
-        conn.execute("INSERT INTO products (name, category, description, options) VALUES (?,?,?,?)",
-                     (name, cat, desc, raw))
-    context.user_data.clear()
-    await update.message.reply_text("✅ Product added!")
-    return ConversationHandler.END
-
-# ─────────────────────────────────────────────────────────────────
-# 💾 ADMIN DB RESTORE
-# ─────────────────────────────────────────────────────────────────
 async def start_db_restore_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("📥 Send your backup <code>.db</code> file.\n⚠️ This will replace current data.")
@@ -824,7 +1007,6 @@ async def db_file_restore_received(update: Update, context: ContextTypes.DEFAULT
         file = await context.bot.get_file(doc.file_id)
         temp = "temp_restore.db"
         await file.download_to_drive(temp)
-        # validate
         test = sqlite3.connect(temp)
         test.execute("SELECT name FROM sqlite_master WHERE type='table'")
         test.close()
@@ -835,9 +1017,43 @@ async def db_file_restore_received(update: Update, context: ContextTypes.DEFAULT
         await msg.edit_text(f"❌ Restore failed: {e}")
     return ConversationHandler.END
 
-# ─────────────────────────────────────────────────────────────────
+async def broadcast_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
+    text = update.message.text
+    with db() as conn:
+        users = conn.execute("SELECT telegram_id FROM users").fetchall()
+    sent = 0
+    for u in users:
+        try:
+            await context.bot.send_message(u["telegram_id"], text)
+            sent += 1
+        except: pass
+    await update.message.reply_text(f"✅ Broadcast sent to {sent}/{len(users)} users.")
+    return ConversationHandler.END
+
+async def search_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
+    q = update.message.text.strip()
+    user = get_user(q)
+    if not user:
+        await update.message.reply_text("❌ User not found.")
+        return ConversationHandler.END
+    info = (
+        f"👤 <b>User Info</b>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🆔 <code>{user['telegram_id']}</code>\n"
+        f"👤 {user['name']}\n"
+        f"💵 ৳{user['balance']:.2f}\n"
+        f"🏅 {user['rank']}\n"
+        f"🎁 {user['reward_points']} pts\n"
+        f"📅 Joined: {user['created_at']}"
+    )
+    await update.message.reply_text(info, parse_mode=ParseMode.HTML)
+    return ConversationHandler.END
+
+# ─────────────────────────────────────────────
 # 👤 PROFILE & MISC
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 async def show_balance_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(str(update.effective_user.id))
     await edit_or_reply(
@@ -886,9 +1102,9 @@ async def show_orders_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"🆔 <code>{o['order_id']}</code> | {o['product_name']} | ৳{o['price']} | {o['status']}")
     await edit_or_reply(update, "\n".join(lines), UIBuilder.back_button())
 
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # 🔄 MAIN CALLBACK ROUTER
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -913,14 +1129,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("depamt_"):
         await deposit_amount_button(update, context)
 
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # 🚀 MAIN
-# ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 def main():
     init_db()
     app = Application.builder().token(Config.BOT_TOKEN).build()
 
-    # Registration (password only)
+    # Registration
     reg_handler = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
@@ -930,7 +1146,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Order
+    # Order (game only needs details)
     order_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(package_selected_handler, pattern=r"^package_\d+_\d+$")],
         states={
@@ -939,7 +1155,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Deposit (with amount buttons)
+    # Deposit
     deposit_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(show_recharge_instructions_ui, pattern=r"^recharge_(bkash|nagad|rocket)$")],
         states={
@@ -966,7 +1182,7 @@ def main():
     admin_prod_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_product_add, pattern="^adm_product_add$")],
         states={
-            ADMIN_ADD_PROD_CAT: [CallbackQueryHandler(prod_cat_received, pattern="^cat_sel_")],
+            ADMIN_ADD_PROD_TYPE: [CallbackQueryHandler(prod_type_received, pattern="^prodtype_")],
             ADMIN_ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_name_received)],
             ADMIN_ADD_PROD_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_desc_received)],
             ADMIN_ADD_PROD_OPTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_opts_received)],
@@ -974,7 +1190,19 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin restore
+    # Admin stock add
+    admin_stock_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_stock_add, pattern="^adm_add_stock$")],
+        states={
+            ADMIN_ADD_STOCK_PROD: [CallbackQueryHandler(stock_prod_selected, pattern="^stockprod_")],
+            ADMIN_ADD_STOCK_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_email_received)],
+            ADMIN_ADD_STOCK_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_password_received)],
+            ADMIN_ADD_STOCK_ACTIVATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_activation_received)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+    )
+
+    # Admin restore DB
     admin_restore_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_db_restore_process, pattern="^adm_restore_db$")],
         states={
@@ -1006,14 +1234,15 @@ def main():
     app.add_handler(deposit_handler)
     app.add_handler(admin_bal_handler)
     app.add_handler(admin_prod_handler)
+    app.add_handler(admin_stock_handler)
     app.add_handler(admin_restore_handler)
     app.add_handler(broadcast_handler)
     app.add_handler(search_handler)
 
     app.add_handler(CallbackQueryHandler(admin_callback_router, pattern=r"^adm_"))
-    app.add_handler(CallbackQueryHandler(button_callback, pattern=r"^(?!package_)(?!adm_)(?!depamt_)"))
+    app.add_handler(CallbackQueryHandler(button_callback, pattern=r"^(?!package_)(?!adm_)(?!depamt_)(?!prodtype_)(?!stockprod_)"))
 
-    logger.info("💫 SKY TopUp Elite launched...")
+    logger.info("💫 SKY TopUp Ultimate launched...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
