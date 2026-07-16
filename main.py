@@ -2,7 +2,6 @@
 import asyncio, os, sys, sqlite3, json
 from datetime import datetime
 from uuid import uuid4
-from typing import Optional
 
 try:
     from aiogram import Bot, Dispatcher, F
@@ -106,35 +105,27 @@ class Database:
             conn.commit()
     
     def _seed_data(self, conn):
-        # Main Categories
+        # Main Categories - UPDATED
         categories = [
-            ("pubg_uc", None, "PUBG UC", "PUBG Mobile UC Top-up", "", 1),
-            ("youtube", None, "YouTube Premium", "Ad-free YouTube", "▶️", 2),
-            ("netflix", None, "Netflix Premium", "Netflix Accounts", "🎬", 3),
-            ("crunchyroll", None, "Crunchyroll", "Anime Streaming", "", 4),
-            ("vpn_plus", None, "VPN Plus", "Premium VPN Services", "🔐", 5),
-            ("ip_services", None, "IP Services", "Proxy & VPS", "", 6),
+            ("youtube", None, "YouTube Premium", "Ad-free YouTube", "▶️", 1),
+            ("netflix", None, "Netflix Premium", "Netflix Accounts", "🎬", 2),
+            ("crunchyroll", None, "Crunchyroll", "Anime Streaming", "", 3),
+            ("vpn", None, "VPN", "Premium VPN Services", "", 4),
+            ("proxy", None, "Proxy", "Proxy Services", "", 5),
         ]
         for cat in categories:
             conn.execute("""INSERT INTO categories(id,parent_id,name,description,icon,sort_order) 
                            VALUES(?,?,?,?,?,?)""", cat)
         
-        # Products
+        # Products - UPDATED
         products = [
-            # PUBG UC
-            ("pubg_60", "pubg_uc", "🎮 60 UC", 60, 0, None, 0),
-            ("pubg_325", "pubg_uc", "🎮 325 UC", 310, 0, None, 0),
-            ("pubg_660", "pubg_uc", "🎮 660 UC", 610, 0, None, 0),
-            ("pubg_1800", "pubg_uc", "🎮 1800 UC", 1560, 0, None, 0),
-            ("pubg_3850", "pubg_uc", "🎮 3850 UC", 3160, 0, None, 0),
-            ("pubg_8100", "pubg_uc", "🎮 8100 UC", 6400, 0, None, 0),
             # YouTube Premium
             ("yt_1m", "youtube", "▶️ 1 Month", 100, 0, "email_pass", 30),
             ("yt_3m", "youtube", "▶️ 3 Months", 200, 0, "email_pass", 90),
             ("yt_6m", "youtube", "▶️ 6 Months", 300, 0, "email_pass", 180),
             ("yt_1y", "youtube", "▶️ 1 Year", 490, 0, "email_pass", 365),
             # Netflix
-            ("nf_1m", "netflix", " 1 Month", 150, 0, "email_pass", 30),
+            ("nf_1m", "netflix", "🎬 1 Month", 150, 0, "email_pass", 30),
             ("nf_3m", "netflix", "🎬 3 Months", 400, 0, "email_pass", 90),
             ("nf_6m", "netflix", "🎬 6 Months", 750, 0, "email_pass", 180),
             ("nf_1y", "netflix", "🎬 1 Year", 1400, 0, "email_pass", 365),
@@ -142,24 +133,24 @@ class Database:
             ("cr_1m", "crunchyroll", "🍿 1 Month", 200, 0, "email_pass", 30),
             ("cr_3m", "crunchyroll", "🍿 3 Months", 550, 0, "email_pass", 90),
             ("cr_1y", "crunchyroll", " 1 Year", 1840, 0, "email_pass", 365),
-            # VPN
-            ("vpn_express", "vpn_plus", " ExpressVPN 1M", 350, 0, "email_pass", 30),
-            ("vpn_hma", "vpn_plus", "🔐 HMA VPN 1M", 250, 0, "key_only", 30),
-            ("vpn_nord", "vpn_plus", "🔐 NordVPN 1M", 320, 0, "email_pass", 30),
-            ("vpn_proton", "vpn_plus", " ProtonVPN 1M", 300, 0, "email_pass", 30),
-            ("vpn_surf", "vpn_plus", "🔐 Surfshark 1M", 280, 0, "email_pass", 30),
-            # IP Services
-            ("proxy_resi", "ip_services", " Residential Proxy", 500, 0, "key_only", 30),
-            ("proxy_dc", "ip_services", " Datacenter Proxy", 300, 0, "key_only", 30),
-            ("vps_basic", "ip_services", "️ Basic VPS", 800, 0, "email_pass", 30),
-            ("vps_premium", "ip_services", "🖥️ Premium VPS", 1500, 0, "email_pass", 30),
+            # VPN - Only VPN services
+            ("vpn_express", "vpn", " ExpressVPN 1M", 350, 0, "email_pass", 30),
+            ("vpn_hma", "vpn", " HMA VPN 1M", 250, 0, "key_only", 30),
+            ("vpn_nord", "vpn", "🔐 NordVPN 1M", 320, 0, "email_pass", 30),
+            ("vpn_proton", "vpn", "🔐 ProtonVPN 1M", 300, 0, "email_pass", 30),
+            ("vpn_surf", "vpn", "🔐 Surfshark 1M", 280, 0, "email_pass", 30),
+            ("vpn_vanish", "vpn", " VanishVPN 1M", 260, 0, "email_pass", 30),
+            # Proxy - Only Proxy services
+            ("proxy_resi", "proxy", "🌐 Residential Proxy", 500, 0, "key_only", 30),
+            ("proxy_dc", "proxy", "🌐 Datacenter Proxy", 300, 0, "key_only", 30),
+            ("proxy_mobile", "proxy", " Mobile Proxy", 600, 0, "key_only", 30),
         ]
         for prod in products:
             conn.execute("""INSERT INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) 
                            VALUES(?,?,?,?,?,?,?)""", prod)
         
         conn.commit()
-        print("✅ Database initialized with default data")
+        print("✅ Database initialized with updated categories")
     
     # User methods
     def get_user(self, uid):
@@ -401,13 +392,9 @@ class Admin(StatesGroup):
     stock_data = State()
     stock_days = State()
 
-# ─── HELPERS ──
+# ─── HELPERS ───
 def fmt(amount):
     return f"৳{amount:,.0f}"
-
-def copy_text(text):
-    """Generate copyable text"""
-    return f"`{text}`"
 
 # ─── WELCOME MESSAGE ───
 WELCOME = """
@@ -415,11 +402,11 @@ WELCOME = """
 │   🌟  SKY STORE BD  🌟      │
 │   ⚡ Premium Digital Store   │
 ├─────────────────────────────┤
-│  🎮 PUBG UC • ▶️ YouTube    │
-│   Netflix • 🍿 Crunchyroll│
-│  🔐 VPN Plus • 🌐 IP Services│
-├─────────────────────────────┤
-│  📞 Support: @FBSKYSUPPORT  │
+│  ▶️ YouTube •  Netflix    │
+│  🍿 Crunchyroll • 🔐 VPN    │
+│        🌐 Proxy             │
+─────────────────────────────┤
+│   Support: @FBSKYSUPPORT  │
 │  ⚡ Instant • 🛡️ Trusted    │
 ╰─────────────────────────────╯
 
@@ -448,7 +435,7 @@ def main_menu(uid):
     
     # Bottom menu
     kb.row(
-        InlineKeyboardButton(text="📦 My Orders", callback_data="my_orders"),
+        InlineKeyboardButton(text=" My Orders", callback_data="my_orders"),
         InlineKeyboardButton(text="💰 Deposit", callback_data="my_wallet")
     )
     kb.row(InlineKeyboardButton(text="📞 Support", url=f"https://t.me/{SUPPORT_USERNAME}"))
@@ -487,10 +474,10 @@ def payment_kb():
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="💰 Wallet Balance", callback_data="pay_wallet"))
     kb.row(
-        InlineKeyboardButton(text="💳 bKash", callback_data="pay_bkash"),
+        InlineKeyboardButton(text=" bKash", callback_data="pay_bkash"),
         InlineKeyboardButton(text="💳 Nagad", callback_data="pay_nagad")
     )
-    kb.row(InlineKeyboardButton(text="💳 Rocket", callback_data="pay_rocket"))
+    kb.row(InlineKeyboardButton(text=" Rocket", callback_data="pay_rocket"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_to_products"))
     return kb.as_markup()
 
@@ -509,7 +496,7 @@ def admin_kb():
         InlineKeyboardButton(text="📦 Products", callback_data="admin_prods")
     )
     kb.row(
-        InlineKeyboardButton(text="🔑 Stock", callback_data="admin_stock"),
+        InlineKeyboardButton(text=" Stock", callback_data="admin_stock"),
         InlineKeyboardButton(text="✏️ Edit", callback_data="admin_editprod")
     )
     kb.row(
@@ -523,7 +510,7 @@ def admin_kb():
 def admin_orders_kb():
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(text="⏳ Pending", callback_data="orders_pending"),
+        InlineKeyboardButton(text=" Pending", callback_data="orders_pending"),
         InlineKeyboardButton(text="✅ Delivered", callback_data="orders_delivered")
     )
     kb.row(InlineKeyboardButton(text="📋 All Orders", callback_data="orders_all"))
@@ -543,9 +530,9 @@ def admin_prods_kb():
     for cat in db.get_categories():
         prods = db.get_products(cat["id"])
         if prods:
-            kb.row(InlineKeyboardButton(text=f"📦 {cat['name']} ({len(prods)})", callback_data=f"adminprods_{cat['id']}"))
+            kb.row(InlineKeyboardButton(text=f" {cat['name']} ({len(prods)})", callback_data=f"adminprods_{cat['id']}"))
     kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data="addprod_select"))
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
     return kb.as_markup()
 
 def admin_stock_kb():
@@ -554,7 +541,7 @@ def admin_stock_kb():
         InlineKeyboardButton(text="📊 Stock Status", callback_data="stock_status"),
         InlineKeyboardButton(text="➕ Add Stock", callback_data="stock_add")
     )
-    kb.row(InlineKeyboardButton(text="️ Delete Stock", callback_data="stock_del"))
+    kb.row(InlineKeyboardButton(text="🗑️ Delete Stock", callback_data="stock_del"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     return kb.as_markup()
 
@@ -606,8 +593,8 @@ async def order_start(call: CallbackQuery, state: FSMContext):
     await state.update_data(order_pid=pid, order_prod=prod)
     cat = db.get_category(prod["category_id"])
     
-    # Check if VPN/IP service
-    if prod["category_id"] in ["vpn_plus", "ip_services"]:
+    # Check if VPN or Proxy service
+    if prod["category_id"] in ["vpn", "proxy"]:
         lines = [
             f" *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
@@ -617,22 +604,17 @@ async def order_start(call: CallbackQuery, state: FSMContext):
             "*(or type 'auto')*",
         ]
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text=" Auto", callback_data="vpn_auto"))
-        kb.row(InlineKeyboardButton(text=" Back", callback_data="main_menu"))
+        kb.row(InlineKeyboardButton(text="⚡ Auto", callback_data="vpn_auto"))
+        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
         await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
         await state.set_state(Order.input)
     else:
-        # Other products - ask for user input
-        if cat["id"] == "pubg_uc":
-            prompt = "🎮 Enter your PUBG Player ID:"
-        else:
-            prompt = "📧 Enter your Email:"
-        
+        # Other products - ask for email
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
             "",
-            prompt,
+            "📧 Enter your Email:",
         ]
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
@@ -732,9 +714,8 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
     
     oid = db.add_order(uid, prod["id"], prod["name"], cat_id, price, uinput, pmethod, trx)
     
-    # Handle different product types
-    if cat_id in ["vpn_plus", "ip_services"]:
-        # VPN/IP - auto delivery if stock available
+    # Handle VPN/Proxy - auto delivery if stock available
+    if cat_id in ["vpn", "proxy"]:
         stock = db.get_available_stock(prod["id"])
         if stock:
             db.update_order(oid, "delivered")
@@ -745,11 +726,11 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
                 delivery_text = f"📧 *Email:*\n`{stock['email']}`\n\n"
                 delivery_text += f"🔐 *Password:*\n`{stock['password']}`\n\n"
             
-            delivery_text += f" Server: {uinput or 'Auto'}\n"
+            delivery_text += f"🌍 Server: {uinput or 'Auto'}\n"
             delivery_text += f"⏰ Expires: {stock['expiry_days']} days"
             
             lines = [
-                "✅ *VPN Delivered!*",
+                "✅ *Delivered!*",
                 "",
                 delivery_text,
             ]
@@ -757,7 +738,7 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
         else:
             db.update_order(oid, "pending")
             lines = [
-                " *Order Placed!*",
+                "⏳ *Order Placed!*",
                 "",
                 f"Order ID: #{oid}",
                 "Status: Pending (No Stock)",
@@ -786,9 +767,9 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
         f"📛 Name: {user['first_name']}",
         f"📦 Product: {prod['name']}",
         f"💰 Amount: {fmt(price)}",
-        f" Input: {uinput}",
-        f" Payment: {pmethod}",
-        f" TrxID: {trx}",
+        f"📝 Input: {uinput}",
+        f"💳 Payment: {pmethod}",
+        f"🔢 TrxID: {trx}",
     ]
     
     for aid in ADMIN_IDS:
@@ -829,7 +810,7 @@ async def back_prod(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     cat_id = data.get("order_prod", {}).get("category_id")
     if cat_id:
-        await call.message.edit_text(f" Select a product:", reply_markup=products_kb(cat_id))
+        await call.message.edit_text(f"📦 Select a product:", reply_markup=products_kb(cat_id))
         await state.set_state(None)
 
 @dp.callback_query(lambda c: c.data == "my_wallet")
@@ -838,7 +819,7 @@ async def wallet(call: CallbackQuery):
     uid = call.from_user.id
     bal = db.get_balance(uid)
     lines = [
-        "💰 *Your Wallet*",
+        " *Your Wallet*",
         "",
         f"💳 Balance: {fmt(bal)}",
         "",
@@ -857,7 +838,7 @@ async def orders(call: CallbackQuery):
     orders = db.get_user_orders(uid, 10)
     
     if not orders:
-        lines = [" *Your Orders*", "", "No orders yet."]
+        lines = ["📦 *Your Orders*", "", "No orders yet."]
     else:
         lines = ["📦 *Your Orders*", ""]
         for o in orders[:10]:
@@ -878,14 +859,14 @@ async def orders(call: CallbackQuery):
     
     await call.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
 
-# ── ADMIN PANEL ───
+# ─── ADMIN PANEL ───
 @dp.callback_query(lambda c: c.data == "admin_menu")
 async def admin_menu(call: CallbackQuery, state: FSMContext):
     await call.answer()
     if call.from_user.id not in ADMIN_IDS:
         return
     await state.clear()
-    await call.message.edit_text("🔐 *Admin Panel*", reply_markup=admin_kb(), parse_mode="Markdown")
+    await call.message.edit_text(" *Admin Panel*", reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "admin_dash")
 async def dash(call: CallbackQuery):
@@ -947,9 +928,9 @@ async def approve_order(call: CallbackQuery):
     if not order:
         return
     
-    # For VPN/IP, generate delivery data
+    # For VPN/Proxy, generate delivery data
     prod = db.get_product(order["product_id"])
-    if prod["category_id"] in ["vpn_plus", "ip_services"]:
+    if prod["category_id"] in ["vpn", "proxy"]:
         stock = db.get_available_stock(prod["id"])
         if stock:
             if stock["stock_type"] == "key_only":
@@ -979,7 +960,7 @@ async def approve_order(call: CallbackQuery):
     else:
         db.update_order(oid, "delivered")
         try:
-            await bot.send_message(order["user_id"], f"✅ *Order #{oid} Delivered!*\n\n {order['product_name']}", parse_mode="Markdown")
+            await bot.send_message(order["user_id"], f"✅ *Order #{oid} Delivered!*\n\n📦 {order['product_name']}", parse_mode="Markdown")
         except:
             pass
     
@@ -997,7 +978,7 @@ async def reject_order(call: CallbackQuery):
     db.update_order(oid, "cancelled")
     
     try:
-        await bot.send_message(order["user_id"], f"❌ *Order #{oid} Cancelled*\n\n📦 {order['product_name']}", parse_mode="Markdown")
+        await bot.send_message(order["user_id"], f"❌ *Order #{oid} Cancelled*\n\n {order['product_name']}", parse_mode="Markdown")
     except:
         pass
     
@@ -1091,7 +1072,7 @@ async def deliver_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     lines = [" *Deliver Order*", "", "Send Order ID:"]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.deliver_oid)
 
@@ -1111,7 +1092,7 @@ async def deliver_oid(msg: Message, state: FSMContext):
             f"Amount: {fmt(order['amount'])}",
             "",
             "Send delivery data:",
-            "For VPN: email:password or key",
+            "For VPN/Proxy: email:password or key",
         ]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
         await state.set_state(Admin.deliver_file)
@@ -1191,7 +1172,7 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
     prods = db.get_products(cat_id)
     
     lines = [
-        f" *{cat.get('icon', '')} {cat['name']}*",
+        f"📂 *{cat.get('icon', '')} {cat['name']}*",
         f"ID: {cat_id}",
         f"Products: {len(prods)}",
     ]
@@ -1200,7 +1181,7 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
     
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data=f"addprod_{cat_id}"))
-    kb.row(InlineKeyboardButton(text="️ Edit Category", callback_data=f"editcat_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="✏️ Edit Category", callback_data=f"editcat_{cat_id}"))
     kb.row(InlineKeyboardButton(text="🗑️ Delete", callback_data=f"delcat_{cat_id}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_cats"))
     
@@ -1219,7 +1200,7 @@ async def addcat_start(call: CallbackQuery, state: FSMContext):
         "Example: nord_vpn",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_cats" if parent_id == "root" else f"admincat_{parent_id}"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_cats" if parent_id == "root" else f"admincat_{parent_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addcat_id)
 
@@ -1275,22 +1256,9 @@ async def editcat_start(call: CallbackQuery, state: FSMContext):
         "Type 'skip' to keep current",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"admincat_{cat_id}"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"admincat_{cat_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addcat_name)
-
-@dp.message(Admin.addcat_name)
-async def editcat_name(msg: Message, state: FSMContext):
-    if msg.text.strip().lower() != "skip":
-        data = await state.get_data()
-        db.add_category(data["editcat_id"], None, msg.text.strip())
-    
-    lines = [
-        "Send new description:",
-        "Type 'skip' to keep current",
-    ]
-    await msg.answer("\n".join(lines), parse_mode="Markdown")
-    await state.set_state(Admin.addcat_desc)
 
 @dp.callback_query(lambda c: c.data.startswith("delcat_"))
 async def delcat(call: CallbackQuery):
@@ -1345,7 +1313,7 @@ async def addprod_start(call: CallbackQuery, state: FSMContext):
         "Example: vpn_nord_1m",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_prods"))
+    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_prods"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addprod_id)
 
@@ -1400,7 +1368,7 @@ async def addprod_bonus(msg: Message, state: FSMContext):
         await msg.answer("\n".join(lines), parse_mode="Markdown")
         await state.set_state(Admin.addprod_expiry)
     except:
-        await msg.answer(" Invalid bonus")
+        await msg.answer("❌ Invalid bonus")
 
 @dp.message(Admin.addprod_expiry)
 async def addprod_expiry(msg: Message, state: FSMContext):
@@ -1410,8 +1378,8 @@ async def addprod_expiry(msg: Message, state: FSMContext):
         data = await state.get_data()
         cat_id = data["addprod_cat"]
         
-        # For VPN/IP categories, ask stock type
-        if cat_id in ["vpn_plus", "ip_services"]:
+        # For VPN/Proxy categories, ask stock type
+        if cat_id in ["vpn", "proxy"]:
             lines = [
                 "Select stock type:",
                 "• email_pass = Email + Password",
@@ -1469,13 +1437,13 @@ async def editprod_list(call: CallbackQuery):
     if not prods:
         lines = ["No products to edit."]
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
+        kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
         return await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     
     kb = InlineKeyboardBuilder()
     for p in prods[:20]:
         kb.row(InlineKeyboardButton(text=f"✏️ {p['name'][:25]} - {fmt(p['price'])}", callback_data=f"editprod_{p['id']}"))
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     
     lines = ["Select product to edit:"]
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1504,7 +1472,7 @@ async def editprod_select(call: CallbackQuery, state: FSMContext):
     kb.row(InlineKeyboardButton(text="💰 Price", callback_data=f"editprod_field_{pid}_price"))
     kb.row(InlineKeyboardButton(text="🎁 Bonus", callback_data=f"editprod_field_{pid}_bonus"))
     kb.row(InlineKeyboardButton(text=" Expiry", callback_data=f"editprod_field_{pid}_expiry"))
-    kb.row(InlineKeyboardButton(text="️ Delete", callback_data=f"delprod_{pid}"))
+    kb.row(InlineKeyboardButton(text="🗑️ Delete", callback_data=f"delprod_{pid}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_editprod"))
     
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1573,7 +1541,7 @@ async def delprod(call: CallbackQuery):
     pid = call.data[8:]
     db.delete_product(pid)
     
-    lines = [f"️ *Product deleted: {pid}*"]
+    lines = [f"🗑️ *Product deleted: {pid}*"]
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
 # ─── STOCK MANAGEMENT ───
@@ -1631,7 +1599,7 @@ async def stock_pid(msg: Message, state: FSMContext):
         ]
     else:
         lines = [
-            f" {prod['name']}",
+            f"📦 {prod['name']}",
             f"Type: Email + Password",
             "",
             "Send in format:",
@@ -1745,7 +1713,7 @@ async def stock_del(call: CallbackQuery):
     
     kb = InlineKeyboardBuilder()
     for s in stock[:15]:
-        status = "✅" if s['is_used'] else ""
+        status = "✅" if s['is_used'] else "📦"
         display = s['key_data'] or s['email'] or "N/A"
         kb.row(InlineKeyboardButton(
             text=f"{status} #{s['id']} {display[:25]}...",
@@ -1758,7 +1726,7 @@ async def stock_del(call: CallbackQuery):
 
 @dp.callback_query(lambda c: c.data.startswith("delstock_"))
 async def del_stock(call: CallbackQuery):
-    await call.answer("️ Deleting...")
+    await call.answer("🗑️ Deleting...")
     sid = int(call.data.split("_")[1])
     db.delete_stock(sid)
     await stock_del(call)
@@ -1767,7 +1735,7 @@ async def del_stock(call: CallbackQuery):
 @dp.callback_query(lambda c: c.data == "admin_ban")
 async def ban_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = ["⛔ *Ban User*", "", "Send User ID to ban:"]
+    lines = [" *Ban User*", "", "Send User ID to ban:"]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1779,7 +1747,7 @@ async def ban_do(msg: Message, state: FSMContext):
         uid = int(msg.text)
         db.set_ban(uid, True)
         
-        lines = [f"⛔ *User {uid} banned!*"]
+        lines = [f" *User {uid} banned!*"]
         await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
         
         try:
@@ -1816,9 +1784,9 @@ async def unban_do(msg: Message, state: FSMContext):
         await msg.answer("❌ Invalid User ID")
     await state.clear()
 
-# ── MAIN ───
+# ─── MAIN ──
 async def main():
-    print("🚀 Bot starting...")
+    print(" Bot starting...")
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
