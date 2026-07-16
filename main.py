@@ -105,53 +105,31 @@ class Database:
             conn.commit()
     
     def _seed_data(self, conn):
-        # Main Categories - UPDATED
         categories = [
             ("youtube", None, "YouTube Premium", "Ad-free YouTube", "▶️", 1),
             ("netflix", None, "Netflix Premium", "Netflix Accounts", "🎬", 2),
             ("crunchyroll", None, "Crunchyroll", "Anime Streaming", "🍿", 3),
-            ("vpn", None, "VPN", "Premium VPN Services", "🔐", 4),
-            ("proxy", None, "Proxy", "Proxy Services", "🌐", 5),
+            ("vpn", None, "VPN Services", "Premium VPN Services", "🔐", 4),
+            ("proxy", None, "Proxy Services", "Proxy Services", "🌐", 5),
         ]
         for cat in categories:
             conn.execute("""INSERT INTO categories(id,parent_id,name,description,icon,sort_order) 
                            VALUES(?,?,?,?,?,?)""", cat)
         
-        # Products - UPDATED
         products = [
-            # YouTube Premium
-            ("yt_1m", "youtube", "▶️ 1 Month", 100, 0, "email_pass", 30),
-            ("yt_3m", "youtube", "▶️ 3 Months", 200, 0, "email_pass", 90),
-            ("yt_6m", "youtube", "▶️ 6 Months", 300, 0, "email_pass", 180),
-            ("yt_1y", "youtube", "▶️ 1 Year", 490, 0, "email_pass", 365),
-            # Netflix
-            ("nf_1m", "netflix", "🎬 1 Month", 150, 0, "email_pass", 30),
-            ("nf_3m", "netflix", "🎬 3 Months", 400, 0, "email_pass", 90),
-            ("nf_6m", "netflix", "🎬 6 Months", 750, 0, "email_pass", 180),
-            ("nf_1y", "netflix", "🎬 1 Year", 1400, 0, "email_pass", 365),
-            # Crunchyroll
-            ("cr_1m", "crunchyroll", "🍿 1 Month", 200, 0, "email_pass", 30),
-            ("cr_3m", "crunchyroll", "🍿 3 Months", 550, 0, "email_pass", 90),
-            ("cr_1y", "crunchyroll", "🍿 1 Year", 1840, 0, "email_pass", 365),
-            # VPN - Only VPN services
-            ("vpn_express", "vpn", "🚀 ExpressVPN 1M", 350, 0, "email_pass", 30),
-            ("vpn_hma", "vpn", "🦎 HMA VPN 1M", 250, 0, "key_only", 30),
-            ("vpn_nord", "vpn", "🔐 NordVPN 1M", 320, 0, "email_pass", 30),
-            ("vpn_proton", "vpn", "🔐 ProtonVPN 1M", 300, 0, "email_pass", 30),
-            ("vpn_surf", "vpn", "🔐 Surfshark 1M", 280, 0, "email_pass", 30),
-            ("vpn_vanish", "vpn", "🔐 VanishVPN 1M", 260, 0, "email_pass", 30),
-            # Proxy - Only Proxy services
+            ("yt_1m", "youtube", "▶️ YouTube Premium 1 Month", 100, 0, "email_pass", 30),
+            ("yt_3m", "youtube", "▶️ YouTube Premium 3 Months", 200, 0, "email_pass", 90),
+            ("nf_1m", "netflix", "🎬 Netflix Premium 1 Month", 150, 0, "email_pass", 30),
+            ("cr_1m", "crunchyroll", "🍿 Crunchyroll 1 Month", 200, 0, "email_pass", 30),
+            ("vpn_express", "vpn", "🚀 ExpressVPN 1 Month", 350, 0, "email_pass", 30),
             ("proxy_resi", "proxy", "🌐 Residential Proxy", 500, 0, "key_only", 30),
-            ("proxy_dc", "proxy", "🌐 Datacenter Proxy", 300, 0, "key_only", 30),
-            ("proxy_mobile", "proxy", "🌐 Mobile Proxy", 600, 0, "key_only", 30),
         ]
         for prod in products:
             conn.execute("""INSERT INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) 
                            VALUES(?,?,?,?,?,?,?)""", prod)
         
         conn.commit()
-        print("✅ Database initialized with updated categories")
-    
+
     # User methods
     def get_user(self, uid):
         with self._get_conn() as conn:
@@ -363,7 +341,7 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
 
-# ─── SECURITY MIDDLEWARE (INCREASED) ───
+# ─── SECURITY MIDDLEWARE ───
 class BanCheckMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: TelegramObject, data: dict):
         user = data.get("event_from_user")
@@ -383,20 +361,23 @@ class Order(StatesGroup):
     payment = State()
     trxid = State()
 
+class DepositState(StatesGroup):
+    trxid = State()
+
 class Admin(StatesGroup):
     addbal_uid = State()
     addbal_amt = State()
     deliver_oid = State()
-    deliver_file = State()  # Fixed: Missing state added
+    deliver_file = State()
     broadcast_msg = State()
     ban_uid = State()
     unban_uid = State()
     addcat_id = State()
     addcat_name = State()
     addcat_desc = State()
-    editcat_id = State()    # Fixed: Added for category editing isolation
-    editcat_name = State()  # Fixed: Added for category editing isolation
-    editcat_desc = State()  # Fixed: Added for category editing isolation
+    editcat_id = State()
+    editcat_name = State()
+    editcat_desc = State()
     addprod_id = State()
     addprod_name = State()
     addprod_price = State()
@@ -421,41 +402,33 @@ WELCOME = """
 │   🌟  SKY STORE BD  🌟      │
 │   ⚡ Premium Digital Store   │
 ├─────────────────────────────┤
-│  ▶️ YouTube •  Netflix    │
+│  ▶️ YouTube  •  🎬 Netflix   │
 │  🍿 Crunchyroll • 🔐 VPN    │
 │        🌐 Proxy             │
-─────────────────────────────┤
-│   Support: @FBSKYSUPPORT  │
-│  ⚡ Instant • 🛡️ Trusted    │
+├─────────────────────────────┤
+│   Support: @FBSKYSUPPORT    │
+│  ⚡ Instant  • 🛡️ Trusted    │
 ╰─────────────────────────────╯
 
-👇 Select a category to start!
+👇 নিচের যেকোনো একটি ক্যাটাগরি বেছে নিন:
 """
 
-# ─── KEYBOARDS ───
+# ─── KEYBOARDS (LARGE 1-COLUMN UI) ───
 def main_menu(uid):
-    """Main menu with 2-column layout"""
+    """Full width 1-column category layout for maximum readability"""
     kb = InlineKeyboardBuilder()
     cats = db.get_categories()
     
-    # Add categories in pairs (2 per row)
-    for i in range(0, len(cats), 2):
-        row = []
-        row.append(InlineKeyboardButton(
-            text=f"{cats[i].get('icon', '📦')} {cats[i]['name']}",
-            callback_data=f"cat_{cats[i]['id']}"
+    # Single column layout (Large Buttons)
+    for cat in cats:
+        kb.row(InlineKeyboardButton(
+            text=f"{cat.get('icon', '📦')} {cat['name']}",
+            callback_data=f"cat_{cat['id']}"
         ))
-        if i + 1 < len(cats):
-            row.append(InlineKeyboardButton(
-                text=f"{cats[i+1].get('icon', '📦')} {cats[i+1]['name']}",
-                callback_data=f"cat_{cats[i+1]['id']}"
-            ))
-        kb.row(*row)
     
-    # Bottom menu
     kb.row(
-        InlineKeyboardButton(text=" My Orders", callback_data="my_orders"),
-        InlineKeyboardButton(text="💰 Deposit", callback_data="my_wallet")
+        InlineKeyboardButton(text="📜 My Orders", callback_data="my_orders"),
+        InlineKeyboardButton(text="💳 Deposit Balance", callback_data="my_wallet")
     )
     kb.row(InlineKeyboardButton(text="📞 Support", url=f"https://t.me/{SUPPORT_USERNAME}"))
     
@@ -465,39 +438,28 @@ def main_menu(uid):
     return kb.as_markup()
 
 def products_kb(cat_id):
-    """Products in 2-column layout"""
+    """Products in full width 1-column layout"""
     prods = db.get_products(cat_id)
     kb = InlineKeyboardBuilder()
     
-    for i in range(0, len(prods), 2):
-        row = []
-        p1 = prods[i]
-        txt1 = f"{p1['name']}\n{fmt(p1['price'])}"
-        if p1.get("bonus", 0) > 0:
-            txt1 += f"\n(+{fmt(p1['bonus'])})"
-        row.append(InlineKeyboardButton(text=txt1, callback_data=f"order_{p1['id']}"))
+    for p in prods:
+        txt = f"{p['name']} — {fmt(p['price'])}"
+        if p.get("bonus", 0) > 0:
+            txt += f" (+{fmt(p['bonus'])})"
+        kb.row(InlineKeyboardButton(text=txt, callback_data=f"order_{p['id']}"))
         
-        if i + 1 < len(prods):
-            p2 = prods[i+1]
-            txt2 = f"{p2['name']}\n{fmt(p2['price'])}"
-            if p2.get("bonus", 0) > 0:
-                txt2 += f"\n(+{fmt(p2['bonus'])})"
-            row.append(InlineKeyboardButton(text=txt2, callback_data=f"order_{p2['id']}"))
-        
-        kb.row(*row)
-    
-    kb.row(InlineKeyboardButton(text="🔙 Back to Categories", callback_data="main_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back to Main Menu", callback_data="main_menu"))
     return kb.as_markup()
 
 def payment_kb():
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="💰 Wallet Balance", callback_data="pay_wallet"))
     kb.row(
-        InlineKeyboardButton(text=" bKash", callback_data="pay_bkash"),
-        InlineKeyboardButton(text="💳 Nagad", callback_data="pay_nagad")
+        InlineKeyboardButton(text="💖 bKash", callback_data="pay_bkash"),
+        InlineKeyboardButton(text="🟠 Nagad", callback_data="pay_nagad")
     )
-    kb.row(InlineKeyboardButton(text=" Rocket", callback_data="pay_rocket"))
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_to_products"))
+    kb.row(InlineKeyboardButton(text="🚀 Rocket", callback_data="pay_rocket"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
     return kb.as_markup()
 
 def admin_kb():
@@ -515,12 +477,12 @@ def admin_kb():
         InlineKeyboardButton(text="📦 Products", callback_data="admin_prods")
     )
     kb.row(
-        InlineKeyboardButton(text=" Stock", callback_data="admin_stock"),
-        InlineKeyboardButton(text="✏️ Edit", callback_data="admin_editprod")
+        InlineKeyboardButton(text="🔑 Stock", callback_data="admin_stock"),
+        InlineKeyboardButton(text="✏️ Edit Product", callback_data="admin_editprod")
     )
     kb.row(
-        InlineKeyboardButton(text="⛔ Ban", callback_data="admin_ban"),
-        InlineKeyboardButton(text="✅ Unban", callback_data="admin_unban")
+        InlineKeyboardButton(text="⛔ Ban User", callback_data="admin_ban"),
+        InlineKeyboardButton(text="✅ Unban User", callback_data="admin_unban")
     )
     kb.row(InlineKeyboardButton(text="📨 Broadcast", callback_data="admin_broadcast"))
     kb.row(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))
@@ -529,7 +491,7 @@ def admin_kb():
 def admin_orders_kb():
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(text=" Pending", callback_data="orders_pending"),
+        InlineKeyboardButton(text="⏳ Pending", callback_data="orders_pending"),
         InlineKeyboardButton(text="✅ Delivered", callback_data="orders_delivered")
     )
     kb.row(InlineKeyboardButton(text="📋 All Orders", callback_data="orders_all"))
@@ -541,16 +503,16 @@ def admin_cats_kb():
     for cat in db.get_categories():
         kb.row(InlineKeyboardButton(text=f"{cat.get('icon', '📦')} {cat['name']}", callback_data=f"admincat_{cat['id']}"))
     kb.row(InlineKeyboardButton(text="➕ Add Category", callback_data="addcat_root"))
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     return kb.as_markup()
 
 def admin_prods_kb():
     kb = InlineKeyboardBuilder()
     for cat in db.get_categories():
         prods = db.get_products(cat["id"])
-        kb.row(InlineKeyboardButton(text=f" {cat['name']} ({len(prods)})", callback_data=f"adminprods_{cat['id']}"))
+        kb.row(InlineKeyboardButton(text=f"📂 {cat['name']} ({len(prods)})", callback_data=f"adminprods_{cat['id']}"))
     kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data="addprod_select"))
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     return kb.as_markup()
 
 def admin_stock_kb():
@@ -573,7 +535,8 @@ def delivery_kb(oid):
 
 # ─── COMMANDS ───
 @dp.message(CommandStart())
-async def start(msg: Message):
+async def start(msg: Message, state: FSMContext):
+    await state.clear()
     user = msg.from_user
     db.create_user(user.id, user.first_name, user.username)
     await msg.answer(WELCOME, reply_markup=main_menu(user.id))
@@ -595,10 +558,10 @@ async def view_category(call: CallbackQuery, state: FSMContext):
     prods = db.get_products(cat_id)
     if prods:
         title = f"{cat.get('icon', '📦')} {cat['name']}"
-        await call.message.edit_text(f"📦 *{title}*\n\nSelect a product:", 
+        await call.message.edit_text(f"📦 *{title}*\n\nনিচের তালিকা থেকে একটি প্রোডাক্ট নির্বাচন করুন:", 
                                     reply_markup=products_kb(cat_id), parse_mode="Markdown")
     else:
-        await call.answer("No products in this category yet", show_alert=True)
+        await call.answer("❌ এই ক্যাটাগরিতে বর্তমানে কোনো প্রোডাক্ট নেই", show_alert=True)
 
 @dp.callback_query(lambda c: c.data.startswith("order_"))
 async def order_start(call: CallbackQuery, state: FSMContext):
@@ -609,33 +572,30 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         return
     
     await state.update_data(order_pid=pid, order_prod=prod)
-    cat = db.get_category(prod["category_id"])
     
-    # Check if VPN or Proxy service
     if prod["category_id"] in ["vpn", "proxy"]:
         lines = [
-            f" *{prod['name']}*",
-            f"💰 Price: {fmt(prod['price'])}",
-            f"⏰ Valid: {prod.get('expiry_days', 30)} days",
+            f"📦 *{prod['name']}*",
+            f"💰 মূল্য: {fmt(prod['price'])}",
+            f"⏰ মেয়াদ: {prod.get('expiry_days', 30)} দিন",
             "",
-            "🌍 Enter server/location:",
-            "*(or type 'auto')*",
+            "🌍 আপনার কাঙ্ক্ষিত সার্ভার/লোকেশন লিখুন:",
+            "*(অথবা Auto নিতে নিচের বাটন চাপুন)*",
         ]
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="⚡ Auto", callback_data="vpn_auto"))
-        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
+        kb.row(InlineKeyboardButton(text="⚡ Auto Location", callback_data="vpn_auto"))
+        kb.row(InlineKeyboardButton(text="🔙 Back to Main Menu", callback_data="main_menu"))
         await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
         await state.set_state(Order.input)
     else:
-        # Other products - ask for email
         lines = [
             f"📦 *{prod['name']}*",
-            f"💰 Price: {fmt(prod['price'])}",
+            f"💰 মূল্য: {fmt(prod['price'])}",
             "",
-            "📧 Enter your Email:",
+            "📧 আপনার Email ঠিকানাকটি লিখুন:",
         ]
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="main_menu"))
+        kb.row(InlineKeyboardButton(text="🔙 Back to Main Menu", callback_data="main_menu"))
         await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
         await state.set_state(Order.input)
 
@@ -649,9 +609,9 @@ async def vpn_auto(call: CallbackQuery, state: FSMContext):
     lines = [
         f"📦 *{prod['name']}*",
         f"🌍 Server: Auto",
-        f"💰 Price: {fmt(prod['price'])}",
+        f"💰 মূল্য: {fmt(prod['price'])}",
         "",
-        "Select payment method:",
+        "পেমেন্ট মেথড সিলেক্ট করুন:",
     ]
     await call.message.edit_text("\n".join(lines), reply_markup=payment_kb(), parse_mode="Markdown")
     await state.set_state(Order.payment)
@@ -660,7 +620,7 @@ async def vpn_auto(call: CallbackQuery, state: FSMContext):
 async def get_input(msg: Message, state: FSMContext):
     text = msg.text.strip()
     if len(text) < 2:
-        return await msg.answer("❌ Please enter valid details")
+        return await msg.answer("❌ সঠিক তথ্য প্রদান করুন")
     
     await state.update_data(user_input=text)
     data = await state.get_data()
@@ -668,9 +628,9 @@ async def get_input(msg: Message, state: FSMContext):
     
     lines = [
         f"📦 *{prod['name']}*",
-        f"💰 Price: {fmt(prod['price'])}",
+        f"💰 মূল্য: {fmt(prod['price'])}",
         "",
-        "Select payment method:",
+        "পেমেন্ট মেথড সিলেক্ট করুন:",
     ]
     await msg.answer("\n".join(lines), reply_markup=payment_kb(), parse_mode="Markdown")
     await state.set_state(Order.payment)
@@ -689,14 +649,14 @@ async def pay_select(call: CallbackQuery, state: FSMContext):
         bal = db.get_balance(uid)
         if bal < price:
             lines = [
-                "❌ *Insufficient Balance*",
+                "❌ *পর্যাপ্ত ব্যালেন্স নেই!*",
                 "",
-                f"Need: {fmt(price)}",
-                f"Have: {fmt(bal)}",
+                f"প্রয়োজন: {fmt(price)}",
+                f"আপনার আছে: {fmt(bal)}",
             ]
             kb = InlineKeyboardBuilder()
-            kb.row(InlineKeyboardButton(text="💰 Top Up", callback_data="my_wallet"))
-            kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_to_payment"))
+            kb.row(InlineKeyboardButton(text="💳 Add Balance", callback_data="my_wallet"))
+            kb.row(InlineKeyboardButton(text="🔙 Back to Main Menu", callback_data="main_menu"))
             await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
             return
         
@@ -705,16 +665,16 @@ async def pay_select(call: CallbackQuery, state: FSMContext):
     else:
         nums = {"bkash": "01742958563", "nagad": "01748506069", "rocket": "01742958563"}
         lines = [
-            "💳 *Send Payment*",
+            "💳 *পেমেন্ট নির্দেশিকা*",
             "",
-            f"💰 Amount: {fmt(price)}",
-            f"📱 Method: {method.upper()}",
-            f"🔢 Number: `{nums.get(method, '')}`",
+            f"💰 পরিমাণ: {fmt(price)}",
+            f"📱 মেথড: {method.upper()}",
+            f"🔢 নম্বর: `{nums.get(method, '')}` (Send Money)",
             "",
-            "Send payment & enter TrxID:",
+            "টাকা পাঠানোর পর ট্রানজেকশন আইডি (TrxID) সেন্ড করুন:",
         ]
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_to_payment"))
+        kb.row(InlineKeyboardButton(text="❌ Cancel Payment", callback_data="main_menu"))
         await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
         await state.set_state(Order.trxid)
 
@@ -732,7 +692,6 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
     
     oid = db.add_order(uid, prod["id"], prod["name"], cat_id, price, uinput, pmethod, trx)
     
-    # Handle VPN/Proxy - auto delivery if stock available
     if cat_id in ["vpn", "proxy"]:
         stock = db.get_available_stock(prod["id"])
         if stock:
@@ -745,14 +704,13 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
                 delivery_text += f"🔐 *Password:*\n`{stock['password']}`\n\n"
             
             delivery_text += f"🌍 Server: {uinput or 'Auto'}\n"
-            delivery_text += f"⏰ Expires: {stock['expiry_days']} days"
+            delivery_text += f"⏰ Expiration: {stock['expiry_days']} Days"
             
             lines = [
-                "✅ *Delivered!*",
+                "✅ *অর্ডার ডেলিভারি সফল!*",
                 "",
                 delivery_text,
             ]
-            # Fixed Dynamic Rendering to avoid crashes during Message/Callback transitions
             if isinstance(call_or_msg, CallbackQuery):
                 await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
             else:
@@ -760,42 +718,40 @@ async def process_payment(call_or_msg, state: FSMContext, pmethod, trx):
         else:
             db.update_order(oid, "pending")
             lines = [
-                "⏳ *Order Placed!*",
+                "⏳ *অর্ডার কনফার্ম হয়েছে!*",
                 "",
                 f"Order ID: #{oid}",
-                "Status: Pending (No Stock)",
-                "Admin will deliver soon",
+                "স্ট্যাটাস: পেন্ডিং (অ্যাডমিন দ্রুত ডেলিভারি করবে)",
             ]
             if isinstance(call_or_msg, CallbackQuery):
                 await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
             else:
                 await call_or_msg.answer("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
     else:
-        # Other products - pending
         db.update_order(oid, "pending")
         lines = [
-            "✅ *Order Placed!*",
+            "✅ *অর্ডার সফলভাবে সাবমিট হয়েছে!*",
             "",
             f"Order ID: #{oid}",
-            "Status: Pending Verification",
+            "স্ট্যাটাস: ভেরিফিকেশন চলছে...",
         ]
         if isinstance(call_or_msg, CallbackQuery):
             await call_or_msg.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
         else:
             await call_or_msg.answer("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
     
-    # Notify admin
+    # Notify Admin
     user = db.get_user(uid)
     admin_lines = [
-        "📦 *NEW ORDER*",
+        "📦 *NEW ORDER RECEIVED*",
         "",
         f"🆔 Order: #{oid}",
-        f"👤 User: {uid}",
-        f"📛 Name: {user['first_name']}",
+        f"👤 User ID: {uid}",
+        f"📛 Name: {user['first_name'] if user else 'N/A'}",
         f"📦 Product: {prod['name']}",
-        f"💰 Amount: {fmt(price)}",
-        f"📝 Input: {uinput}",
-        f"💳 Payment: {pmethod}",
+        f"💰 Price: {fmt(price)}",
+        f"📝 Info: {uinput}",
+        f"💳 Method: {pmethod}",
         f"🔢 TrxID: {trx}",
     ]
     
@@ -817,46 +773,58 @@ async def get_trx(msg: Message, state: FSMContext):
     mn = {"bkash": "bKash", "nagad": "Nagad", "rocket": "Rocket"}.get(method, method)
     await process_payment(msg, state, mn, trx)
 
-@dp.callback_query(lambda c: c.data == "back_to_payment")
-async def back_pay(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    data = await state.get_data()
-    prod = data["order_prod"]
-    lines = [
-        f"📦 *{prod['name']}*",
-        f"💰 Price: {fmt(prod['price'])}",
-        "",
-        "Select payment method:",
-    ]
-    await call.message.edit_text("\n".join(lines), reply_markup=payment_kb(), parse_mode="Markdown")
-    await state.set_state(Order.payment)
-
-@dp.callback_query(lambda c: c.data == "back_to_products")
-async def back_prod(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    data = await state.get_data()
-    cat_id = data.get("order_prod", {}).get("category_id")
-    if cat_id:
-        await call.message.edit_text(f"📦 Select a product:", reply_markup=products_kb(cat_id))
-        await state.set_state(None)
-
+# ─── DEPOSIT SYSTEM (FIXED & IMPROVED) ───
 @dp.callback_query(lambda c: c.data == "my_wallet")
-async def wallet(call: CallbackQuery):
+async def wallet(call: CallbackQuery, state: FSMContext):
     await call.answer()
+    await state.clear()
     uid = call.from_user.id
     bal = db.get_balance(uid)
+    
     lines = [
-        " *Your Wallet*",
+        "💳 *ডিটেন পেমেন্ট ও ডিরেক্ট ডিপোজিট*",
+        "─────────────────────────────",
+        f"💰 আপনার বর্তমান ব্যালেন্স: *{fmt(bal)}*",
+        "─────────────────────────────",
+        "📌 *টাকা পয়েন্ট যুক্ত করার উপায়:*",
+        "১. নিচের যেকোনো নম্বরে (Send Money) করুন:",
+        "   • 💖 *bKash:* `01742958563`",
+        "   • 🟠 *Nagad:* `01748506069`",
+        "   • 🚀 *Rocket:* `01742958563`",
         "",
-        f"💳 Balance: {fmt(bal)}",
-        "",
-        "To add balance:",
-        "1. Send money to:",
-        "   bKash: 01742958563",
-        "   Nagad: 01748506069",
-        "2. Send TrxID with amount",
+        "২. টাকা পাঠানোর পর নিচে আপনার পাঠানো *টাকার পরিমাণ* এবং *TrxID* প্রদান করুন।",
+        "   *(যেমন: 500 TRX1234567)*",
     ]
-    await call.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+    
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="❌ Cancel Deposit", callback_data="main_menu"))
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await state.set_state(DepositState.trxid)
+
+@dp.message(DepositState.trxid)
+async def deposit_trx_received(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    uid = msg.from_user.id
+    
+    # Send request to admins
+    admin_text = [
+        "💰 *NEW DEPOSIT REQUEST*",
+        "",
+        f"👤 User ID: `{uid}`",
+        f"📛 Name: {msg.from_user.first_name}",
+        f"📝 Text Sent: `{text}`",
+        "",
+        "অ্যাডমিন প্যানেল থেকে আইডি সার্চ করে ব্যালেন্স যুক্ত করুন।"
+    ]
+    
+    for aid in ADMIN_IDS:
+        try:
+            await bot.send_message(aid, "\n".join(admin_text), parse_mode="Markdown")
+        except:
+            pass
+            
+    await msg.answer("✅ আপনার ডিপোজিট রিকোয়েস্টটি এডমিনের কাছে পাঠানো হয়েছে! শীঘ্রই ভেরিফাই করে ব্যালেন্স যুক্ত করা হবে।", reply_markup=main_menu(uid))
+    await state.clear()
 
 @dp.callback_query(lambda c: c.data == "my_orders")
 async def orders(call: CallbackQuery):
@@ -865,15 +833,14 @@ async def orders(call: CallbackQuery):
     orders = db.get_user_orders(uid, 10)
     
     if not orders:
-        lines = ["📦 *Your Orders*", "", "No orders yet."]
+        lines = ["📦 *Your Orders*", "", "আপনার কোনো অর্ডার হিস্ট্রি পাওয়া যায়নি।"]
     else:
-        lines = ["📦 *Your Orders*", ""]
+        lines = ["📜 *আপনার সাম্প্রতিক অর্ডারসমূহ:*", ""]
         for o in orders[:10]:
             emoji = {"pending": "⏳", "delivered": "✅", "cancelled": "❌"}.get(o['status'], "⏳")
             lines.append(f"{emoji} *#{o['id']}* - {o['product_name']}")
-            lines.append(f"   {fmt(o['amount'])} - {o['status']}")
+            lines.append(f"   মূল্য: {fmt(o['amount'])} - Status: {o['status']}")
             
-            # Show delivery data if available
             if o.get("delivery_data"):
                 dd = o["delivery_data"]
                 if dd.get("key"):
@@ -884,16 +851,18 @@ async def orders(call: CallbackQuery):
                     lines.append(f"   🔐 Pass: `{dd['password']}`")
             lines.append("")
     
-    await call.message.edit_text("\n".join(lines), reply_markup=main_menu(uid), parse_mode="Markdown")
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔙 Back to Main Menu", callback_data="main_menu"))
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
-# ─── ADMIN PANEL ───
+# ─── ADMIN PANEL HANDLERS ───
 @dp.callback_query(lambda c: c.data == "admin_menu")
 async def admin_menu(call: CallbackQuery, state: FSMContext):
     await call.answer()
     if call.from_user.id not in ADMIN_IDS:
         return
     await state.clear()
-    await call.message.edit_text(" *Admin Panel*", reply_markup=admin_kb(), parse_mode="Markdown")
+    await call.message.edit_text("⚡ *Admin Panel Control Center*", reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "admin_dash")
 async def dash(call: CallbackQuery):
@@ -903,25 +872,25 @@ async def dash(call: CallbackQuery):
     stock = db.get_stock_counts()
     
     lines = [
-        "📊 *Dashboard*",
+        "📊 *Dashboard Overview*",
         "",
-        f"👥 Users: {len(users)}",
-        f"⏳ Pending Orders: {pending}",
+        f"👥 মোট ইউজার: {len(users)}",
+        f"⏳ পেন্ডিং অর্ডার: {pending}",
         "",
-        "🔑 *Stock Status:*",
+        "🔑 *বর্তমান স্টক স্ট্যাটাস:*",
     ]
     if stock:
         for s in stock:
-            lines.append(f"• {s['product_id']}: {s['cnt']}")
+            lines.append(f"• `{s['product_id']}`: {s['cnt']} টি")
     else:
-        lines.append("No stock available")
+        lines.append("কোনো স্টক খালি নেই")
     
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "admin_orders")
 async def all_orders_menu(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text("📦 *Orders*", reply_markup=admin_orders_kb(), parse_mode="Markdown")
+    await call.message.edit_text("📦 *Order Management*", reply_markup=admin_orders_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("orders_"))
 async def orders_by_status(call: CallbackQuery):
@@ -936,13 +905,13 @@ async def orders_by_status(call: CallbackQuery):
         title = f"{status.capitalize()} Orders"
     
     if not orders:
-        lines = [f"📦 *{title}*", "", "No orders found."]
+        lines = [f"📦 *{title}*", "", "কোনো অর্ডার পাওয়া যায়নি।"]
     else:
         lines = [f"📦 *{title}*", ""]
         for o in orders[:10]:
             emoji = {"pending": "⏳", "delivered": "✅", "cancelled": "❌"}.get(o['status'], "⏳")
             lines.append(f"{emoji} *#{o['id']}* - {o['product_name'][:20]}")
-            lines.append(f"   {fmt(o['amount'])} by {o['user_id']}")
+            lines.append(f"   {fmt(o['amount'])} | User: `{o['user_id']}`")
             lines.append("")
     
     await call.message.edit_text("\n".join(lines), reply_markup=admin_orders_kb(), parse_mode="Markdown")
@@ -955,9 +924,8 @@ async def approve_order(call: CallbackQuery):
     if not order:
         return
     
-    # For VPN/Proxy, generate delivery data
     prod = db.get_product(order["product_id"])
-    if prod["category_id"] in ["vpn", "proxy"]:
+    if prod and prod["category_id"] in ["vpn", "proxy"]:
         stock = db.get_available_stock(prod["id"])
         if stock:
             if stock["stock_type"] == "key_only":
@@ -968,15 +936,14 @@ async def approve_order(call: CallbackQuery):
             delivery_data["expires"] = f"{stock['expiry_days']} days"
             db.update_order(oid, "delivered", delivery_data)
             
-            # Notify user
-            user_text = f"✅ *Order Delivered!*\n\n"
+            user_text = f"✅ *আপনার অর্ডার #{oid} ডেলিভারি করা হয়েছে!*\n\n"
             if stock["stock_type"] == "key_only":
                 user_text += f"🔑 *Key:*\n`{stock['key_data']}`\n\n"
             else:
                 user_text += f"📧 *Email:*\n`{stock['email']}`\n\n"
                 user_text += f"🔐 *Password:*\n`{stock['password']}`\n\n"
             user_text += f"🌍 Server: {order.get('user_input', 'Auto')}\n"
-            user_text += f"⏰ Expires: {stock['expiry_days']} days"
+            user_text += f"⏰ Expiration: {stock['expiry_days']} Days"
             
             try:
                 await bot.send_message(order["user_id"], user_text, parse_mode="Markdown")
@@ -987,11 +954,11 @@ async def approve_order(call: CallbackQuery):
     else:
         db.update_order(oid, "delivered")
         try:
-            await bot.send_message(order["user_id"], f"✅ *Order #{oid} Delivered!*\n\n📦 {order['product_name']}", parse_mode="Markdown")
+            await bot.send_message(order["user_id"], f"✅ *আপনার অর্ডার #{oid} সক্রিয় করা হয়েছে!*", parse_mode="Markdown")
         except:
             pass
     
-    lines = [f"✅ *Order #{oid} Approved!*", f"Status: Delivered"]
+    lines = [f"✅ *Order #{oid} Approved!*"]
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("reject_"))
@@ -1005,33 +972,17 @@ async def reject_order(call: CallbackQuery):
     db.update_order(oid, "cancelled")
     
     try:
-        await bot.send_message(order["user_id"], f"❌ *Order #{oid} Cancelled*\n\n {order['product_name']}", parse_mode="Markdown")
+        await bot.send_message(order["user_id"], f"❌ *অর্ডার #{oid} বাতিল করা হয়েছে।*", parse_mode="Markdown")
     except:
         pass
     
-    lines = [f"❌ *Order #{oid} Rejected!*", f"Status: Cancelled"]
-    await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
-
-@dp.callback_query(lambda c: c.data == "admin_users")
-async def users_list(call: CallbackQuery):
-    await call.answer()
-    users = db.get_all_users()
-    lines = ["👥 *Users*", ""]
-    for u in users[:15]:
-        status = "🔒" if u['is_banned'] else "👤"
-        lines.append(f"{status} {u['user_id']} - {u['first_name'][:15]}")
-        lines.append(f"   Balance: {fmt(u['balance'])}")
-        lines.append("")
-    
-    if not lines:
-        lines = ["No users yet."]
-    
+    lines = [f"❌ *Order #{oid} Rejected!*"]
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "admin_addbal")
 async def addbal_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = ["💰 *Add Balance*", "", "Send User ID:"]
+    lines = ["💰 *Add User Balance*", "", "ইউজারের Telegram User ID দিন:"]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1040,29 +991,29 @@ async def addbal_start(call: CallbackQuery, state: FSMContext):
 @dp.message(Admin.addbal_uid)
 async def addbal_uid(msg: Message, state: FSMContext):
     try:
-        uid = int(msg.text)
+        uid = int(msg.text.strip())
         user = db.get_user(uid)
         if not user:
-            return await msg.answer("❌ User not found")
+            return await msg.answer("❌ কোনো ইউজার পাওয়া যায়নি।")
         
         await state.update_data(uid=uid)
         lines = [
             "💰 *Add Balance*",
             "",
             f"👤 User: {user['first_name']}",
-            f"💳 Current: {fmt(user['balance'])}",
+            f"💳 বর্তমান ব্যালেন্স: {fmt(user['balance'])}",
             "",
-            "Send amount to add:",
+            "কত টাকা যোগ করতে চান লিখে পাঠান:",
         ]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
         await state.set_state(Admin.addbal_amt)
     except:
-        await msg.answer("❌ Invalid User ID")
+        await msg.answer("❌ ইউজার আইডি সঠিক নয়।")
 
 @dp.message(Admin.addbal_amt)
 async def addbal_amt(msg: Message, state: FSMContext):
     try:
-        amt = float(msg.text)
+        amt = float(msg.text.strip())
         data = await state.get_data()
         uid = data["uid"]
         
@@ -1071,60 +1022,50 @@ async def addbal_amt(msg: Message, state: FSMContext):
         new_bal = db.get_balance(uid)
         
         lines = [
-            "✅ *Balance Added!*",
+            "✅ *ব্যালেন্স যুক্ত করা সফল হয়েছে!*",
             "",
-            f"Amount: {fmt(amt)}",
-            f"New Balance: {fmt(new_bal)}",
-            f"Time: {datetime.now():%H:%M}",
+            f"পরিমাণ: {fmt(amt)}",
+            f"নতুন ব্যালেন্স: {fmt(new_bal)}",
         ]
         await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
         
         try:
-            user_text = [
-                "💰 *Balance Added!*",
-                "",
-                f"Amount: {fmt(amt)}",
-                f"New Balance: {fmt(new_bal)}",
-                f"Added by: Admin",
-            ]
-            await bot.send_message(uid, "\n".join(user_text), parse_mode="Markdown")
+            await bot.send_message(uid, f"🎉 *আপনার ওয়ালেটে {fmt(amt)} যুক্ত করা হয়েছে!*\nবর্তমান ব্যালেন্স: {fmt(new_bal)}", parse_mode="Markdown")
         except:
             pass
     except:
-        await msg.answer("❌ Invalid amount")
+        await msg.answer("❌ টাকার পরিমাণ সঠিক নয়।")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "admin_deliver")
 async def deliver_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = [" *Deliver Order*", "", "Send Order ID:"]
+    lines = ["📦 *Deliver Order Manually*", "", "Order ID লিখুন:"]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.deliver_oid)
 
 @dp.message(Admin.deliver_oid)
 async def deliver_oid(msg: Message, state: FSMContext):
     try:
-        oid = int(msg.text)
+        oid = int(msg.text.strip())
         order = db.get_order(oid)
         if not order:
-            return await msg.answer("❌ Not found")
+            return await msg.answer("❌ অর্ডার পাওয়া যায়নি।")
         
         await state.update_data(oid=oid)
         lines = [
             f"📦 *Order #{oid}*",
             f"Product: {order['product_name']}",
-            f"User: {order['user_id']}",
-            f"Amount: {fmt(order['amount'])}",
+            f"User ID: {order['user_id']}",
             "",
-            "Send delivery data:",
-            "For VPN/Proxy: email:password or key",
+            "ডেলিভারির তথ্য লিখুন (Email:Password বা Key):",
         ]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
-        await state.set_state(Admin.deliver_file) # Correctly references the State now
+        await state.set_state(Admin.deliver_file)
     except:
-        await msg.answer("❌ Invalid Order ID")
+        await msg.answer("❌ ভুল Order ID")
 
 @dp.message(Admin.deliver_file)
 async def deliver_file(msg: Message, state: FSMContext):
@@ -1134,7 +1075,6 @@ async def deliver_file(msg: Message, state: FSMContext):
     
     delivery_text = msg.text.strip()
     
-    # Parse delivery data
     if ":" in delivery_text:
         email, password = delivery_text.split(":", 1)
         delivery_data = {"email": email.strip(), "password": password.strip()}
@@ -1143,8 +1083,7 @@ async def deliver_file(msg: Message, state: FSMContext):
     
     db.update_order(oid, "delivered", delivery_data)
     
-    # Notify user
-    user_text = f"✅ *Order #{oid} Delivered!*\n\n"
+    user_text = f"✅ *আপনার অর্ডার #{oid} ম্যানুয়ালি ডেলিভারি করা হয়েছে!*\n\n"
     if "key" in delivery_data:
         user_text += f"🔑 *Key:*\n`{delivery_data['key']}`\n"
     else:
@@ -1156,14 +1095,14 @@ async def deliver_file(msg: Message, state: FSMContext):
     except:
         pass
     
-    lines = [f"✅ *Order #{oid} Delivered!*"]
+    lines = [f"✅ *Order #{oid} Delivered Successfully!*"]
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "admin_broadcast")
 async def broadcast_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = ["📨 *Broadcast*", "", "Send message to broadcast:"]
+    lines = ["📨 *Broadcast Message*", "", "সকল ইউজারকে পাঠানো বার্তার টেক্সট লিখুন:"]
     await call.message.edit_text("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.broadcast_msg)
 
@@ -1181,15 +1120,15 @@ async def broadcast_do(msg: Message, state: FSMContext):
             except:
                 pass
     
-    lines = [f"✅ *Broadcast Sent!*", "", f"Sent to {sent}/{len(users)} users"]
+    lines = [f"✅ *ব্রডকাস্ট সম্পন্ন!*", "", f"মোট {sent}/{len(users)} ইউজারকে বার্তা পাঠানো হয়েছে।"]
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
-# ─── CATEGORY MANAGEMENT ───
+# ─── CATEGORY MANAGEMENT (FIXED UI & LOGIC) ───
 @dp.callback_query(lambda c: c.data == "admin_cats")
 async def admin_cats(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text("📂 *Categories*", reply_markup=admin_cats_kb(), parse_mode="Markdown")
+    await call.message.edit_text("📂 *Category Management*", reply_markup=admin_cats_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("admincat_"))
 async def admin_cat_view(call: CallbackQuery, state: FSMContext):
@@ -1200,16 +1139,16 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
     
     lines = [
         f"📂 *{cat.get('icon', '')} {cat['name']}*",
-        f"ID: {cat_id}",
-        f"Products: {len(prods)}",
+        f"ID: `{cat_id}`",
+        f"প্রোডাক্ট সংখ্যা: {len(prods)}",
     ]
     if cat.get("description"):
-        lines.append(f"Desc: {cat['description']}")
+        lines.append(f"বর্ণনা: {cat['description']}")
     
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data=f"addprod_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="➕ Add Product Here", callback_data=f"addprod_{cat_id}"))
     kb.row(InlineKeyboardButton(text="✏️ Edit Category", callback_data=f"editcat_{cat_id}"))
-    kb.row(InlineKeyboardButton(text="🗑️ Delete", callback_data=f"delcat_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="🗑️ Delete Category", callback_data=f"delcat_{cat_id}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_cats"))
     
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1218,16 +1157,16 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
 async def addcat_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     parent_id = call.data[7:]
-    await state.update_data(addcat_parent=parent_id)
+    await state.update_data(addcat_parent=None if parent_id == "root" else parent_id)
     
     lines = [
-        "➕ *Add Category*",
+        "➕ *Add New Category*",
         "",
-        "Send category ID (no spaces):",
-        "Example: nord_vpn",
+        "ক্যাটাগরি আইডি লিখুন (স্পেস ছাড়া):",
+        "উদাহরণ: `spotify_prem`",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_cats" if parent_id == "root" else f"admincat_{parent_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_cats"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addcat_id)
 
@@ -1236,10 +1175,7 @@ async def addcat_id(msg: Message, state: FSMContext):
     cid = msg.text.strip().lower().replace(" ", "_")
     await state.update_data(addcat_id=cid)
     
-    lines = [
-        "Send category name:",
-        "Example: 🔑 NordVPN",
-    ]
+    lines = ["ক্যাটাগরির নাম লিখুন (ইমোজি সহ):", "উদাহরণ: 🎵 Spotify Premium"]
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.addcat_name)
 
@@ -1247,10 +1183,7 @@ async def addcat_id(msg: Message, state: FSMContext):
 async def addcat_name(msg: Message, state: FSMContext):
     await state.update_data(addcat_name=msg.text.strip())
     
-    lines = [
-        "Send description (optional):",
-        "Type 'skip' to skip",
-    ]
+    lines = ["ক্যাটাগরির সংক্ষিপ্ত বিবরণ লিখুন (অথবা 'skip' লিখুন):"]
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.addcat_desc)
 
@@ -1259,18 +1192,17 @@ async def addcat_desc(msg: Message, state: FSMContext):
     desc = msg.text.strip() if msg.text.strip().lower() != "skip" else ""
     data = await state.get_data()
     
-    db.add_category(data["addcat_id"], data["addcat_parent"], data["addcat_name"], desc)
+    db.add_category(data["addcat_id"], data.get("addcat_parent"), data["addcat_name"], desc)
     
     lines = [
-        "✅ *Category Added!*",
+        "✅ *Category Created Successfully!*",
         "",
-        f"ID: {data['addcat_id']}",
+        f"ID: `{data['addcat_id']}`",
         f"Name: {data['addcat_name']}",
     ]
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
-# ─── CATEGORY EDITING HANDLERS (FIXED & ISOLATED) ───
 @dp.callback_query(lambda c: c.data.startswith("editcat_"))
 async def editcat_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1280,11 +1212,10 @@ async def editcat_start(call: CallbackQuery, state: FSMContext):
     lines = [
         "✏️ *Edit Category*",
         "",
-        "Send new name:",
-        "Type 'skip' to keep current",
+        "নতুন নাম লিখুন (পরিবর্তন না করতে চাইলে 'skip' লিখুন):",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"admincat_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"admincat_{cat_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.editcat_name)
 
@@ -1299,10 +1230,7 @@ async def editcat_name_msg(msg: Message, state: FSMContext):
             conn.execute("UPDATE categories SET name=? WHERE id=?", (name, cat_id))
             conn.commit()
     
-    lines = [
-        "Send new description (optional):",
-        "Type 'skip' to keep current",
-    ]
+    lines = ["নতুন বিবরণ লিখুন (পরিবর্তন না করতে চাইলে 'skip' লিখুন):"]
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.editcat_desc)
 
@@ -1317,11 +1245,7 @@ async def editcat_desc_msg(msg: Message, state: FSMContext):
             conn.execute("UPDATE categories SET description=? WHERE id=?", (desc, cat_id))
             conn.commit()
             
-    lines = [
-        "✅ *Category Updated!*",
-        "",
-        f"ID: {cat_id}",
-    ]
+    lines = ["✅ *Category Updated Successfully!*"]
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
@@ -1331,14 +1255,14 @@ async def delcat(call: CallbackQuery):
     cid = call.data[7:]
     db.delete_category(cid)
     
-    lines = [f"🗑️ *Category deleted: {cid}*"]
+    lines = [f"🗑️ *Category Deleted: {cid}*"]
     await call.message.edit_text("\n".join(lines), reply_markup=admin_cats_kb(), parse_mode="Markdown")
 
-# ─── PRODUCT MANAGEMENT ───
+# ─── PRODUCT MANAGEMENT (EXPIRY FIX & EDIT) ───
 @dp.callback_query(lambda c: c.data == "admin_prods")
 async def admin_prods(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text("📦 *Products*", reply_markup=admin_prods_kb(), parse_mode="Markdown")
+    await call.message.edit_text("📦 *Product Management*", reply_markup=admin_prods_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("adminprods_"))
 async def admin_prods_view(call: CallbackQuery, state: FSMContext):
@@ -1348,8 +1272,8 @@ async def admin_prods_view(call: CallbackQuery, state: FSMContext):
     prods = db.get_products(cat_id)
     
     lines = [
-        f" *{cat.get('icon', '')} {cat['name']}*",
-        f"Products: {len(prods)}",
+        f"📂 *{cat.get('icon', '')} {cat['name']}*",
+        f"মোট প্রোডাক্ট: {len(prods)}",
         "",
     ]
     for p in prods[:10]:
@@ -1357,7 +1281,7 @@ async def admin_prods_view(call: CallbackQuery, state: FSMContext):
         lines.append(f"• {p['name']}: {fmt(p['price'])}{exp}")
     
     if not prods:
-        lines.append("No products yet.")
+        lines.append("কোনো প্রোডাক্ট নেই।")
     
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="➕ Add Product", callback_data=f"addprod_{cat_id}"))
@@ -1370,13 +1294,12 @@ async def addprod_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     cat_id = call.data[8:] if "_" in call.data else "select"
     
-    # Fixed: If category not selected, ask admin to select from active categories list
     if cat_id == "select":
         kb = InlineKeyboardBuilder()
         for cat in db.get_categories():
             kb.row(InlineKeyboardButton(text=f"{cat.get('icon', '📦')} {cat['name']}", callback_data=f"addprodsel_{cat['id']}"))
         kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_prods"))
-        await call.message.edit_text("Select category for the new product:", reply_markup=kb.as_markup())
+        await call.message.edit_text("প্রোডাক্ট যোগ করতে একটি ক্যাটাগরি সিলেক্ট করুন:", reply_markup=kb.as_markup())
         return
         
     await state.update_data(addprod_cat=cat_id)
@@ -1384,11 +1307,11 @@ async def addprod_start(call: CallbackQuery, state: FSMContext):
     lines = [
         "➕ *Add Product*",
         "",
-        "Send product ID (no spaces):",
-        "Example: vpn_nord_1m",
+        "প্রোডাক্ট এর ID দিন (স্পেস ছাড়া):",
+        "উদাহরণ: `vpn_nord_1m`",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"adminprods_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"adminprods_{cat_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addprod_id)
 
@@ -1401,11 +1324,11 @@ async def addprod_select_cat(call: CallbackQuery, state: FSMContext):
     lines = [
         "➕ *Add Product*",
         "",
-        "Send product ID (no spaces):",
-        "Example: vpn_nord_1m",
+        "প্রোডাক্ট এর ID দিন (স্পেস ছাড়া):",
+        "উদাহরণ: `vpn_nord_1m`",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data=f"adminprods_{cat_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"adminprods_{cat_id}"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.addprod_id)
 
@@ -1414,10 +1337,7 @@ async def addprod_id(msg: Message, state: FSMContext):
     pid = msg.text.strip().lower().replace(" ", "_")
     await state.update_data(addprod_id=pid)
     
-    lines = [
-        "Send product name:",
-        "Example: 🔑 NordVPN (1M)",
-    ]
+    lines = ["প্রোডাক্ট এর নাম লিখুন:", "উদাহরণ: 🔑 NordVPN Premium (1 Month)"]
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.addprod_name)
 
@@ -1425,10 +1345,7 @@ async def addprod_id(msg: Message, state: FSMContext):
 async def addprod_name(msg: Message, state: FSMContext):
     await state.update_data(addprod_name=msg.text.strip())
     
-    lines = [
-        "Send price (numbers only):",
-        "Example: 350",
-    ]
+    lines = ["দাম লিখুন (শুধু সংখ্যা):", "উদাহরণ: 350"]
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.addprod_price)
 
@@ -1438,14 +1355,11 @@ async def addprod_price(msg: Message, state: FSMContext):
         price = float(msg.text.strip())
         await state.update_data(addprod_price=price)
         
-        lines = [
-            "Send bonus (0 if none):",
-            "Example: 0 or 20",
-        ]
+        lines = ["বোনাস পয়েন্ট (না থাকলে 0 দিন):"]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
         await state.set_state(Admin.addprod_bonus)
     except:
-        await msg.answer("❌ Invalid price. Send numbers only.")
+        await msg.answer("❌ সঠিক মূল্য প্রদান করুন।")
 
 @dp.message(Admin.addprod_bonus)
 async def addprod_bonus(msg: Message, state: FSMContext):
@@ -1453,14 +1367,11 @@ async def addprod_bonus(msg: Message, state: FSMContext):
         bonus = float(msg.text.strip())
         await state.update_data(addprod_bonus=bonus)
         
-        lines = [
-            "Send expiry days (0 if none):",
-            "Example: 30 or 0",
-        ]
+        lines = ["মেয়াদ/মেয়াদকাল (দিনে লিখুন, যেমন: 30 বা 365):"]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
         await state.set_state(Admin.addprod_expiry)
     except:
-        await msg.answer("❌ Invalid bonus")
+        await msg.answer("❌ সঠিক তথ্য দিন।")
 
 @dp.message(Admin.addprod_expiry)
 async def addprod_expiry(msg: Message, state: FSMContext):
@@ -1470,14 +1381,11 @@ async def addprod_expiry(msg: Message, state: FSMContext):
         data = await state.get_data()
         cat_id = data["addprod_cat"]
         
-        # For VPN/Proxy categories, ask stock type
         if cat_id in ["vpn", "proxy"]:
             lines = [
-                "Select stock type:",
-                "• email_pass = Email + Password",
-                "• key_only = Key only",
-                "",
-                "Type: email_pass or key_only",
+                "স্টক টাইপ সিলেক্ট করুন:",
+                "• `email_pass` = Email + Password",
+                "• `key_only` = Only Key/Code",
             ]
             await msg.answer("\n".join(lines), parse_mode="Markdown")
             await state.set_state(Admin.addprod_stocktype)
@@ -1485,39 +1393,23 @@ async def addprod_expiry(msg: Message, state: FSMContext):
             db.add_product(data["addprod_id"], cat_id, data["addprod_name"], 
                           data["addprod_price"], data["addprod_bonus"], None, expiry)
             
-            lines = [
-                "✅ *Product Added!*",
-                "",
-                f"ID: {data['addprod_id']}",
-                f"Name: {data['addprod_name']}",
-                f"Price: {fmt(data['addprod_price'])}",
-                f"Bonus: {fmt(data['addprod_bonus'])}",
-                f"Expiry: {expiry} days",
-            ]
+            lines = ["✅ *Product Added Successfully!*"]
             await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
             await state.clear()
     except:
-        await msg.answer("❌ Invalid expiry days")
+        await msg.answer("❌ সঠিক দিনের সংখ্যা লিখুন।")
 
 @dp.message(Admin.addprod_stocktype)
 async def addprod_stocktype(msg: Message, state: FSMContext):
     stype = msg.text.strip().lower()
     if stype not in ["email_pass", "key_only"]:
-        return await msg.answer("❌ Type 'email_pass' or 'key_only'")
+        return await msg.answer("❌ শুধুমাত্র `email_pass` অথবা `key_only` লিখুন।")
     
     data = await state.get_data()
     db.add_product(data["addprod_id"], data["addprod_cat"], data["addprod_name"], 
                    data["addprod_price"], data["addprod_bonus"], stype, data["addprod_expiry"])
     
-    lines = [
-        "✅ *Product Added!*",
-        "",
-        f"ID: {data['addprod_id']}",
-        f"Name: {data['addprod_name']}",
-        f"Price: {fmt(data['addprod_price'])}",
-        f"Stock Type: {stype}",
-        f"Expiry: {data['addprod_expiry']} days",
-    ]
+    lines = ["✅ *Product Added Successfully!*"]
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
@@ -1527,17 +1419,17 @@ async def editprod_list(call: CallbackQuery):
     prods = db.get_all_products()
     
     if not prods:
-        lines = ["No products to edit."]
+        lines = ["এডিট করার মতো কোনো প্রোডাক্ট নেই।"]
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_menu"))
+        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
         return await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     
     kb = InlineKeyboardBuilder()
     for p in prods[:20]:
-        kb.row(InlineKeyboardButton(text=f"✏️ {p['name'][:25]} - {fmt(p['price'])}", callback_data=f"editprod_{p['id']}"))
+        kb.row(InlineKeyboardButton(text=f"✏️ {p['name']} — {fmt(p['price'])}", callback_data=f"editprod_{p['id']}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     
-    lines = ["Select product to edit:"]
+    lines = ["এডিট করতে প্রোডাক্ট নির্বাচন করুন:"]
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("editprod_"))
@@ -1550,21 +1442,18 @@ async def editprod_select(call: CallbackQuery, state: FSMContext):
     
     lines = [
         f"📦 *{prod['name']}*",
-        f"ID: {pid}",
-        f"💰 Price: {fmt(prod['price'])}",
-        f"🎁 Bonus: {fmt(prod.get('bonus', 0))}",
-        f"⏰ Expiry: {prod.get('expiry_days', 30)} days",
-        f"🔄 Stock: {prod.get('stock_type', 'N/A')}",
+        f"ID: `{pid}`",
+        f"💰 মূল্য: {fmt(prod['price'])}",
+        f"⏰ মেয়াদ: {prod.get('expiry_days', 30)} Days",
         "",
-        "Select field to edit:",
+        "কোন ফিল্ডটি এডিট করতে চান?",
     ]
     
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="✏️ Name", callback_data=f"editprod_field_{pid}_name"))
     kb.row(InlineKeyboardButton(text="💰 Price", callback_data=f"editprod_field_{pid}_price"))
-    kb.row(InlineKeyboardButton(text="🎁 Bonus", callback_data=f"editprod_field_{pid}_bonus"))
-    kb.row(InlineKeyboardButton(text=" Expiry", callback_data=f"editprod_field_{pid}_expiry"))
-    kb.row(InlineKeyboardButton(text="🗑️ Delete", callback_data=f"delprod_{pid}"))
+    kb.row(InlineKeyboardButton(text="⏰ Expiry Days", callback_data=f"editprod_field_{pid}_expiry"))
+    kb.row(InlineKeyboardButton(text="🗑️ Delete Product", callback_data=f"delprod_{pid}"))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_editprod"))
     
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1577,19 +1466,11 @@ async def editprod_field(call: CallbackQuery, state: FSMContext):
     field = parts[4]
     await state.update_data(editprod_pid=pid, editprod_field=field)
     
-    field_names = {
-        "name": "name",
-        "price": "price (numbers)",
-        "bonus": "bonus (numbers)",
-        "expiry": "expiry days (numbers)",
-    }
-    
     lines = [
-        f"✏️ *Edit {field_names.get(field, field)}*",
+        f"✏️ *Edit {field.capitalize()}*",
+        f"Product ID: `{pid}`",
         "",
-        f"Product: {pid}",
-        "",
-        "Send new value:",
+        "নতুন মানটি লিখে পাঠান:",
     ]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"editprod_{pid}"))
@@ -1608,20 +1489,10 @@ async def editprod_value(msg: Message, state: FSMContext):
             db.update_product(pid, name=value)
         elif field == "price":
             db.update_product(pid, price=float(value))
-        elif field == "bonus":
-            db.update_product(pid, bonus=float(value))
         elif field == "expiry":
             db.update_product(pid, expiry_days=int(value))
         
-        prod = db.get_product(pid)
-        lines = [
-            "✅ *Product Updated!*",
-            "",
-            f"📦 {prod['name']}",
-            f"💰 Price: {fmt(prod['price'])}",
-            f"🎁 Bonus: {fmt(prod.get('bonus', 0))}",
-            f"⏰ Expiry: {prod.get('expiry_days', 30)} days",
-        ]
+        lines = ["✅ *Product Updated Successfully!*"]
         await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     except Exception as e:
         await msg.answer(f"❌ Error: {e}")
@@ -1633,14 +1504,14 @@ async def delprod(call: CallbackQuery):
     pid = call.data[8:]
     db.delete_product(pid)
     
-    lines = [f"🗑️ *Product deleted: {pid}*"]
+    lines = [f"🗑️ *Product Deleted: {pid}*"]
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
 # ─── STOCK MANAGEMENT ───
 @dp.callback_query(lambda c: c.data == "admin_stock")
 async def admin_stock(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text("🔑 *Stock Management*", reply_markup=admin_stock_kb(), parse_mode="Markdown")
+    await call.message.edit_text("🔑 *Stock Management Center*", reply_markup=admin_stock_kb(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "stock_status")
 async def stock_status(call: CallbackQuery):
@@ -1648,13 +1519,13 @@ async def stock_status(call: CallbackQuery):
     counts = db.get_stock_counts()
     
     if not counts:
-        lines = ["No stock available."]
+        lines = ["কোনো স্টক এভেইলেবল নেই।"]
     else:
-        lines = ["🔑 *Stock Status*", ""]
+        lines = ["🔑 *স্টক স্ট্যাটাস list:*", ""]
         for s in counts:
-            lines.append(f"📦 {s['product_id']}")
-            lines.append(f"   Type: {s['stock_type']}")
-            lines.append(f"   Available: {s['cnt']}")
+            lines.append(f"📦 Product: `{s['product_id']}`")
+            lines.append(f"   টাইপ: {s['stock_type']}")
+            lines.append(f"   অবশিষ্ট: {s['cnt']} টি")
             lines.append("")
     
     await call.message.edit_text("\n".join(lines), reply_markup=admin_stock_kb(), parse_mode="Markdown")
@@ -1662,13 +1533,9 @@ async def stock_status(call: CallbackQuery):
 @dp.callback_query(lambda c: c.data == "stock_add")
 async def stock_add_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = [
-        "➕ *Add Stock*",
-        "",
-        "Send Product ID:",
-    ]
+    lines = ["➕ *Add Stock*", "", "Product ID লিখুন:"]
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=" Back", callback_data="admin_stock"))
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(Admin.stock_pid)
 
@@ -1677,28 +1544,14 @@ async def stock_pid(msg: Message, state: FSMContext):
     pid = msg.text.strip()
     prod = db.get_product(pid)
     if not prod:
-        return await msg.answer("❌ Product not found")
+        return await msg.answer("❌ কোনো প্রোডাক্ট পাওয়া যায়নি।")
     
     await state.update_data(stock_pid=pid, stock_type=prod.get("stock_type", "key_only"))
     
     if prod.get("stock_type") == "key_only":
-        lines = [
-            f"📦 {prod['name']}",
-            f"Type: Key Only",
-            "",
-            "Send keys (one per line)",
-            "Or send a .txt file",
-        ]
+        lines = ["প্রতি লাইনে ১টি করে Key/Code সেন্ড করুন:"]
     else:
-        lines = [
-            f"📦 {prod['name']}",
-            f"Type: Email + Password",
-            "",
-            "Send in format:",
-            "email:password",
-            "or email|password",
-            "One per line or .txt file",
-        ]
+        lines = ["প্রতি লাইনে `email:password` ফরম্যাটে অ্যাকাউন্ট পাঠান:"]
     
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(Admin.stock_data)
@@ -1708,10 +1561,10 @@ async def stock_data_text(msg: Message, state: FSMContext):
     data = await state.get_data()
     pid = data["stock_pid"]
     stype = data["stock_type"]
-    lines = [l.strip() for l in msg.text.split("\n") if l.strip()]
+    lines_input = [l.strip() for l in msg.text.split("\n") if l.strip()]
     added = 0
     
-    for line in lines:
+    for line in lines_input:
         if stype == "key_only":
             db.add_stock(pid, "key_only", key_data=line)
             added += 1
@@ -1725,71 +1578,8 @@ async def stock_data_text(msg: Message, state: FSMContext):
             db.add_stock(pid, "email_pass", email=email.strip(), password=password.strip())
             added += 1
     
-    lines_msg = [
-        "✅ *Stock Added!*",
-        "",
-        f"Product: {pid}",
-        f"Added: {added} items",
-        "",
-        "Send expiry days (or 'skip'):",
-    ]
-    await msg.answer("\n".join(lines_msg), parse_mode="Markdown")
-    await state.set_state(Admin.stock_days)
-
-@dp.message(Admin.stock_data, F.document)
-async def stock_data_file(msg: Message, state: FSMContext):
-    data = await state.get_data()
-    pid = data["stock_pid"]
-    stype = data["stock_type"]
-    
-    try:
-        file = await bot.get_file(msg.document.file_id)
-        file_data = await bot.download_file(file.file_path)
-        content = file_data.read().decode('utf-8')
-        lines = [l.strip() for l in content.split("\n") if l.strip()]
-        added = 0
-        
-        for line in lines:
-            if stype == "key_only":
-                db.add_stock(pid, "key_only", key_data=line)
-                added += 1
-            else:
-                if ":" in line:
-                    email, password = line.split(":", 1)
-                elif "|" in line:
-                    email, password = line.split("|", 1)
-                else:
-                    continue
-                db.add_stock(pid, "email_pass", email=email.strip(), password=password.strip())
-                added += 1
-        
-        lines_msg = [
-            "✅ *Stock Added from File!*",
-            "",
-            f"Product: {pid}",
-            f"Added: {added} items",
-            "",
-            "Send expiry days (or 'skip'):",
-        ]
-        await msg.answer("\n".join(lines_msg), parse_mode="Markdown")
-        await state.set_state(Admin.stock_days)
-    except Exception as e:
-        await msg.answer(f"❌ Error: {e}")
-
-@dp.message(Admin.stock_days)
-async def stock_days(msg: Message, state: FSMContext):
-    try:
-        days = int(msg.text.strip())
-    except:
-        days = 30
-    
-    lines = [
-        "✅ *Stock Ready!*",
-        "",
-        f"Expiry: {days} days",
-        "Stock is now available for auto-delivery",
-    ]
-    await msg.answer("\n".join(lines), reply_markup=admin_stock_kb(), parse_mode="Markdown")
+    lines_msg = [f"✅ *{added} টি স্টক যুক্ত করা হয়েছে!*"]
+    await msg.answer("\n".join(lines_msg), reply_markup=admin_stock_kb(), parse_mode="Markdown")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "stock_del")
@@ -1798,7 +1588,7 @@ async def stock_del(call: CallbackQuery):
     stock = db.get_all_stock()
     
     if not stock:
-        lines = ["No stock to delete."]
+        lines = ["মুছে ফেলার মতো কোনো স্টক নেই।"]
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
         return await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1808,12 +1598,12 @@ async def stock_del(call: CallbackQuery):
         status = "✅" if s['is_used'] else "📦"
         display = s['key_data'] or s['email'] or "N/A"
         kb.row(InlineKeyboardButton(
-            text=f"{status} #{s['id']} {display[:25]}...",
+            text=f"{status} #{s['id']} {display[:20]}...",
             callback_data=f"delstock_{s['id']}"
         ))
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_stock"))
     
-    lines = ["🗑️ *Select stock to delete:*"]
+    lines = ["🗑️ *যে স্টকটি মুছে ফেলতে চান সিলেক্ট করুন:*"]
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("delstock_"))
@@ -1823,11 +1613,11 @@ async def del_stock(call: CallbackQuery):
     db.delete_stock(sid)
     await stock_del(call)
 
-# ─── BAN/UNBAN ───
+# ─── BAN / UNBAN SYSTEM ───
 @dp.callback_query(lambda c: c.data == "admin_ban")
 async def ban_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = [" *Ban User*", "", "Send User ID to ban:"]
+    lines = ["⛔ *Ban User*", "", "যাকে ব্যান করতে চান তার User ID দিন:"]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1836,24 +1626,17 @@ async def ban_start(call: CallbackQuery, state: FSMContext):
 @dp.message(Admin.ban_uid)
 async def ban_do(msg: Message, state: FSMContext):
     try:
-        uid = int(msg.text)
+        uid = int(msg.text.strip())
         db.set_ban(uid, True)
-        
-        lines = [f" *User {uid} banned!*"]
-        await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
-        
-        try:
-            await bot.send_message(uid, "❌ You have been banned.")
-        except:
-            pass
+        await msg.answer(f"⛔ User `{uid}` টির এক্সেস ব্যান করা হয়েছে।", reply_markup=admin_kb(), parse_mode="Markdown")
     except:
-        await msg.answer("❌ Invalid User ID")
+        await msg.answer("❌ ভুল আইডি।")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "admin_unban")
 async def unban_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lines = ["✅ *Unban User*", "", "Send User ID to unban:"]
+    lines = ["✅ *Unban User*", "", "যাকে আনব্যান করতে চান তার User ID দিন:"]
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="admin_menu"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1862,24 +1645,16 @@ async def unban_start(call: CallbackQuery, state: FSMContext):
 @dp.message(Admin.unban_uid)
 async def unban_do(msg: Message, state: FSMContext):
     try:
-        uid = int(msg.text)
+        uid = int(msg.text.strip())
         db.set_ban(uid, False)
-        
-        lines = [f"✅ *User {uid} unbanned!*"]
-        await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
-        
-        try:
-            await bot.send_message(uid, "✅ You have been unbanned!")
-        except:
-            pass
+        await msg.answer(f"✅ User `{uid}` সফলভাবে আনব্যান করা হয়েছে।", reply_markup=admin_kb(), parse_mode="Markdown")
     except:
-        await msg.answer("❌ Invalid User ID")
+        await msg.answer("❌ ভুল আইডি।")
     await state.clear()
 
-# ─── MAIN ──
+# ─── MAIN FUNCTION ───
 async def main():
-    print(" Bot starting...")
-    # Registering the Security Ban Middleware
+    print("🚀 Bot starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
