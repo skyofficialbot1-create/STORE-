@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-SKY TopUp Telegram Bot — Ultimate Enterprise v5.1
+SKY TopUp Telegram Bot — Ultimate Enterprise v6.0
 ────────────────────────────────────────────────
-• Category‑specific workflows (Game, VPN, Streaming)
-• VPN / Streaming accounts auto‑delivery with email, password, activation key
+• Fully DYNAMIC categories — add "YouTube Premium", "Proxy", or ANY new
+  category from the Admin Panel and it instantly appears in the user shop.
+  No more hardcoded Game/VPN/Streaming — the bot builds the menu from
+  whatever categories exist in the database.
+• Auto‑delivery (email/password/activation key) OR manual (user ID) —
+  chosen per‑product when the admin creates it.
+• Clean, single‑column "premium" button layout everywhere (no cramped
+  side‑by‑side rows) — built to feel like a polished storefront.
+• VPN / Proxy / Streaming / YouTube Premium accounts auto‑delivery
 • Duration‑based expiry calculation & display
 • Stock management for digital goods
 • Click‑driven recharge with preset amounts
-• Full admin panel (orders, deposits, balance, products, stock, DB backup/restore, broadcast, search)
-• Beautiful UI, no email/OTP hassles
+• Full admin panel (orders, deposits, balance, products, categories,
+  stock, DB backup/restore, broadcast, search)
 """
 
-import logging, os, json, sqlite3, hashlib, secrets, asyncio, shutil
+import logging, os, json, sqlite3, hashlib, secrets, shutil
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from typing import Optional
@@ -32,14 +39,15 @@ from telegram.ext import (
 # 🎛️ CONFIG
 # ─────────────────────────────────────────────
 class Config:
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_BOT_TOKEN_HERE")
     BKASH_NUMBER = os.getenv("BKASH_NUMBER", "01742958563")
     NAGAD_NUMBER = os.getenv("NAGAD_NUMBER", "01748506069")
     ROCKET_NUMBER = os.getenv("ROCKET_NUMBER", "01742958563")
     MIN_DEPOSIT = 50.0
     MIN_PASSWORD_LENGTH = 6
     DB_PATH = os.getenv("DB_PATH", "skytopup.db")
-    ADMIN_USER_ID = 5904838487
+    ADMIN_USER_ID = 7689218221
+    BRAND_NAME = "SKY TOPUP"
 
 logging.basicConfig(
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
@@ -103,16 +111,28 @@ def init_db():
                 updated_at TIMESTAMP
             )
         """)
+        # NOTE: category is now a free‑text, admin‑defined value — not a
+        # fixed enum. delivery_type controls whether checkout asks the
+        # buyer for an ID (manual) or ships stock instantly (auto).
         c.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 category TEXT NOT NULL,
-                product_type TEXT DEFAULT 'game',
+                delivery_type TEXT DEFAULT 'manual',
                 icon TEXT DEFAULT '📦',
                 description TEXT,
                 options TEXT,
                 is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                icon TEXT DEFAULT '📦',
+                display_order INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -136,7 +156,7 @@ def init_db():
         """)
         c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', 'OFF')")
 
-        # Stock table for VPN/streaming accounts
+        # Stock table for auto‑delivery accounts (VPN / Proxy / YouTube / Streaming / etc.)
         c.execute("""
             CREATE TABLE IF NOT EXISTS account_stock (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,50 +171,59 @@ def init_db():
             )
         """)
 
+        # seed default categories
+        c.execute("SELECT COUNT(*) FROM categories")
+        if c.fetchone()[0] == 0:
+            c.executemany(
+                "INSERT INTO categories (name, icon, display_order) VALUES (?,?,?)",
+                [
+                    ("Game Top-Up", "🎮", 1),
+                    ("VPN Premium", "🔐", 2),
+                    ("Proxy", "🌐", 3),
+                    ("YouTube Premium", "▶️", 4),
+                    ("Streaming", "🍿", 5),
+                ]
+            )
+
         # seed products if empty
         c.execute("SELECT COUNT(*) FROM products")
         if c.fetchone()[0] == 0:
             c.executemany(
-                "INSERT INTO products (name, category, product_type, icon, description, options) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO products (name, category, delivery_type, icon, description, options) VALUES (?,?,?,?,?,?)",
                 [
-                    ("Free Fire Diamonds", "game", "game", "💎",
+                    ("Free Fire Diamonds", "Game Top-Up", "manual", "💎",
                      "ফ্রি ফায়ার ডায়মন্ড টপ-আপ",
                      json.dumps([
                          {"amount": "💎 100 Diamonds", "price": 100, "valid_days": 0},
                          {"amount": "💎 310 Diamonds", "price": 300, "valid_days": 0},
                          {"amount": "💎 520 Diamonds", "price": 500, "valid_days": 0},
                      ])),
-                    ("Netflix Premium", "subscribe", "streaming", "🎬",
+                    ("Netflix Premium", "Streaming", "auto", "🎬",
                      "নেটফ্লিক্স প্রিমিয়াম সাবস্ক্রিপশন",
                      json.dumps([
                          {"amount": "🎬 1 Month Screen", "price": 200, "valid_days": 30},
                          {"amount": "🎬 3 Months Premium", "price": 500, "valid_days": 90},
                      ])),
-                    ("Nord VPN", "vpn", "vpn", "🔐",
+                    ("Nord VPN", "VPN Premium", "auto", "🔐",
                      "নর্ড ভিপিএন প্রিমিয়াম অ্যাকাউন্ট",
                      json.dumps([
                          {"amount": "🔐 1 Month", "price": 150, "valid_days": 30},
                          {"amount": "🔐 3 Months", "price": 400, "valid_days": 90},
                      ])),
-                    ("IPVanish VPN", "vpn", "vpn", "🛡️",
-                     "আইপি ভ্যানিশ ভিপিএন",
+                    ("World's Best VPN Proxy", "Proxy", "auto", "🌐",
+                     "পৃথিবীর সবচেয়ে দ্রুত ও নিরাপদ ভিপিএন প্রক্সি সার্ভিস",
                      json.dumps([
-                         {"amount": "🛡️ 1 Month", "price": 180, "valid_days": 30},
-                         {"amount": "🛡️ 3 Months", "price": 450, "valid_days": 90},
+                         {"amount": "🌐 1 Month", "price": 180, "valid_days": 30},
+                         {"amount": "🌐 3 Months", "price": 450, "valid_days": 90},
                      ])),
-                    ("Express VPN", "vpn", "vpn", "⚡",
-                     "এক্সপ্রেস ভিপিএন ফাস্ট কানেকশন",
+                    ("YouTube Premium", "YouTube Premium", "auto", "▶️",
+                     "ইউটিউব প্রিমিয়াম — বিজ্ঞাপনমুক্ত + ব্যাকগ্রাউন্ড প্লে",
                      json.dumps([
-                         {"amount": "⚡ 1 Month", "price": 200, "valid_days": 30},
-                         {"amount": "⚡ 3 Months", "price": 550, "valid_days": 90},
+                         {"amount": "▶️ 1 Month", "price": 120, "valid_days": 30},
+                         {"amount": "▶️ 3 Months", "price": 320, "valid_days": 90},
+                         {"amount": "▶️ 1 Year", "price": 900, "valid_days": 365},
                      ])),
-                    ("HMA VPN", "vpn", "vpn", "🔑",
-                     "এইচএমএ ভিপিএন (অ্যাক্টিভেশন কী সহ)",
-                     json.dumps([
-                         {"amount": "🔑 1 Month", "price": 170, "valid_days": 30},
-                         {"amount": "🔑 3 Months", "price": 420, "valid_days": 90},
-                     ])),
-                    ("Crunchyroll Premium", "streaming", "streaming", "🍿",
+                    ("Crunchyroll Premium", "Streaming", "auto", "🍿",
                      "ক্রাঞ্চিরোল প্রিমিয়াম অ্যানিমে স্ট্রিমিং",
                      json.dumps([
                          {"amount": "🍿 1 Month", "price": 100, "valid_days": 30},
@@ -223,8 +252,32 @@ def is_admin(user_row) -> bool:
 def hash_password(password: str) -> str:
     return hashlib.sha256(("SKY_TOPUP_2024_v2" + password).encode()).hexdigest()
 
+def get_active_categories():
+    """Only returns categories that currently have at least one active product —
+    so the shop menu is always 100% in sync with what admins have added."""
+    with db() as conn:
+        rows = conn.execute("""
+            SELECT c.name AS name, c.icon AS icon, COUNT(p.id) AS cnt
+            FROM categories c
+            JOIN products p ON p.category = c.name AND p.is_active = 1
+            GROUP BY c.name
+            ORDER BY c.display_order ASC, c.name ASC
+        """).fetchall()
+    return rows
+
+def get_all_categories():
+    with db() as conn:
+        return conn.execute("SELECT * FROM categories ORDER BY display_order ASC, name ASC").fetchall()
+
+def ensure_category(name: str, icon: str = "📦"):
+    with db() as conn:
+        exists = conn.execute("SELECT id FROM categories WHERE name = ?", (name,)).fetchone()
+        if not exists:
+            nxt = conn.execute("SELECT COALESCE(MAX(display_order),0)+1 FROM categories").fetchone()[0]
+            conn.execute("INSERT INTO categories (name, icon, display_order) VALUES (?,?,?)", (name, icon, nxt))
+
 # ─────────────────────────────────────────────
-# 🎨 PREMIUM UI
+# 🎨 PREMIUM UI  (single‑column, scroll‑friendly layout)
 # ─────────────────────────────────────────────
 class UIBuilder:
     @staticmethod
@@ -234,12 +287,12 @@ class UIBuilder:
     @staticmethod
     def main_menu(user_row=None) -> InlineKeyboardMarkup:
         keyboard = [
-            [InlineKeyboardButton("🛒 Buy Products", callback_data="shop"),
-             InlineKeyboardButton("💳 My Balance", callback_data="balance")],
-            [InlineKeyboardButton("📦 Order Track", callback_data="orders"),
-             InlineKeyboardButton("➕ Instant Recharge", callback_data="recharge")],
-            [InlineKeyboardButton("👤 My Profile", callback_data="profile"),
-             InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
+            [InlineKeyboardButton("🛍️ Buy Products", callback_data="shop")],
+            [InlineKeyboardButton("💳 My Balance", callback_data="balance")],
+            [InlineKeyboardButton("➕ Instant Recharge", callback_data="recharge")],
+            [InlineKeyboardButton("📦 Order Track", callback_data="orders")],
+            [InlineKeyboardButton("👤 My Profile", callback_data="profile")],
+            [InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
             [InlineKeyboardButton("💬 Help & Support", callback_data="help")],
         ]
         if user_row and is_admin(user_row):
@@ -274,7 +327,9 @@ REG_PASSWORD, REG_CONFIRM_PASSWORD = range(2)
 ORDER_DETAILS_STATE = 100
 ADD_MONEY_AMOUNT, ADD_MONEY_TRX = range(10, 12)
 ADMIN_SET_BAL_ID, ADMIN_SET_BAL_AMT = range(20, 22)
-ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_TYPE, ADMIN_ADD_PROD_DESC, ADMIN_ADD_PROD_OPTS = range(30, 35)
+(ADMIN_ADD_PROD_CAT, ADMIN_ADD_PROD_NEWCAT_NAME, ADMIN_ADD_PROD_NEWCAT_ICON,
+ ADMIN_ADD_PROD_DELIVERY, ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_DESC,
+ ADMIN_ADD_PROD_OPTS) = range(30, 37)
 ADMIN_ADD_STOCK_PROD, ADMIN_ADD_STOCK_EMAIL, ADMIN_ADD_STOCK_PASSWORD, ADMIN_ADD_STOCK_ACTIVATION = range(40, 44)
 ADMIN_RESTORE_DB_STATE = 50
 ADMIN_BROADCAST_MSG = 60
@@ -283,8 +338,7 @@ ADMIN_SEARCH_USER = 70
 DEPOSIT_AMOUNTS = [50, 100, 200, 500, 1000]
 
 def deposit_amount_keyboard() -> InlineKeyboardMarkup:
-    buttons = [InlineKeyboardButton(f"৳{a}", callback_data=f"depamt_{a}") for a in DEPOSIT_AMOUNTS]
-    kb = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+    kb = [[InlineKeyboardButton(f"৳{a}", callback_data=f"depamt_{a}")] for a in DEPOSIT_AMOUNTS]
     kb.append([InlineKeyboardButton("✏️ Custom Amount", callback_data="depamt_custom")])
     kb.append([InlineKeyboardButton("⬅️ Cancel", callback_data="back_main")])
     return InlineKeyboardMarkup(kb)
@@ -302,24 +356,28 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with db() as conn:
             conn.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE telegram_id = ?", (str(user.id),))
         welcome = (
-            "✨ <b>SKY TOPUP · PREMIUM</b> ✨\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"👋 Welcome back, <b>{UIBuilder.safe_text(user_row['name'])}</b>!\n\n"
-            f"💵 Balance: <b>৳{user_row['balance']:,.2f}</b>\n"
-            f"🏅 Rank: {user_row['rank']}\n"
-            f"🎁 Points: {user_row['reward_points']} pts\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🚀 Use the menu below:"
+            "🌌 <b>✨ SKY TOPUP · PREMIUM STORE ✨</b>\n"
+            "┏━━━━━━━━━━━━━━━━━━━━━━┓\n"
+            f"┃ 👋 স্বাগতম, <b>{UIBuilder.safe_text(user_row['name'])}</b>\n"
+            "┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
+            f"💵 <b>ব্যালেন্স:</b> ৳{user_row['balance']:,.2f}\n"
+            f"🏅 <b>র‍্যাংক:</b> {user_row['rank']}\n"
+            f"🎁 <b>পয়েন্ট:</b> {user_row['reward_points']} pts\n\n"
+            "🛍️ VPN · Proxy · YouTube Premium · Streaming · Game Top-Up\n"
+            "সবকিছু এক জায়গায়, ইনস্ট্যান্ট ডেলিভারি সহ ⚡\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👇 নিচ থেকে একটি অপশন বেছে নিন:"
         )
         await smart_reply(update, welcome, UIBuilder.main_menu(user_row))
         return ConversationHandler.END
     welcome = (
-        "✨ <b>SKY TOPUP · PREMIUM</b> ✨\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Hello, <b>{UIBuilder.safe_text(user.first_name or 'User')}</b>! 👋\n\n"
-        "Create a secure password to get started 🔐\n"
-        "<i>(minimum 6 characters)</i>\n\n"
-        "👉 <b>Type your password now:</b>"
+        "🌌 <b>✨ SKY TOPUP · PREMIUM STORE ✨</b>\n"
+        "┏━━━━━━━━━━━━━━━━━━━━━━┓\n"
+        f"┃ হ্যালো, <b>{UIBuilder.safe_text(user.first_name or 'User')}</b> 👋\n"
+        "┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
+        "🔐 শুরু করতে একটি নিরাপদ পাসওয়ার্ড দিন\n"
+        "<i>(কমপক্ষে ৬ ক্যারেক্টার)</i>\n\n"
+        "👉 <b>এখন আপনার পাসওয়ার্ড টাইপ করুন:</b>"
     )
     await update.message.reply_text(welcome, parse_mode=ParseMode.HTML)
     return REG_PASSWORD
@@ -346,7 +404,7 @@ async def reg_confirm_password(update: Update, context: ContextTypes.DEFAULT_TYP
             (tid, hash_password(context.user_data["reg_password"]), name)
         )
     context.user_data.clear()
-    await update.message.reply_text("🎉 <b>Registration complete!</b> You got ৳10 as a welcome gift.")
+    await update.message.reply_text("🎉 <b>Registration complete!</b> You got ৳10 as a welcome gift.", parse_mode=ParseMode.HTML)
     user_row = get_user(tid)
     await update.message.reply_text("✨ Use the menu:", reply_markup=UIBuilder.main_menu(user_row))
     return ConversationHandler.END
@@ -357,16 +415,23 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ─────────────────────────────────────────────
-# 🛒 SHOP & ORDER (game/vpn/streaming)
+# 🛒 SHOP & ORDER — fully dynamic category tree
 # ─────────────────────────────────────────────
 async def show_categories_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cats = get_active_categories()
+    if not cats:
+        await edit_or_reply(update, "⚠️ এখনো কোনো প্রোডাক্ট যোগ করা হয়নি।", UIBuilder.back_button())
+        return
     keyboard = [
-        [InlineKeyboardButton("🎮 Game Top‑Up", callback_data="category_game")],
-        [InlineKeyboardButton("🔐 VPN Premium", callback_data="category_vpn")],
-        [InlineKeyboardButton("🍿 Streaming", callback_data="category_streaming")],
-        [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")],
+        [InlineKeyboardButton(f"{c['icon']} {c['name']}  ({c['cnt']})", callback_data=f"category_{c['name']}")]
+        for c in cats
     ]
-    await edit_or_reply(update, "📂 <b>Product Categories</b>", InlineKeyboardMarkup(keyboard))
+    keyboard.append([InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")])
+    await edit_or_reply(
+        update,
+        "📂 <b>প্রোডাক্ট ক্যাটাগরি</b>\n━━━━━━━━━━━━━━━━━━━━\nযা কিনতে চান সেটি বেছে নিন 👇",
+        InlineKeyboardMarkup(keyboard)
+    )
 
 async def show_products_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, category: str):
     with db() as conn:
@@ -376,7 +441,7 @@ async def show_products_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, c
         return
     keyboard = [[InlineKeyboardButton(f"{p['icon']} {p['name']}", callback_data=f"product_{p['id']}")] for p in products]
     keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="shop")])
-    await edit_or_reply(update, "📦 <b>Select a product</b>", InlineKeyboardMarkup(keyboard))
+    await edit_or_reply(update, f"📦 <b>{UIBuilder.safe_text(category)}</b>\n━━━━━━━━━━━━━━━━━━━━\nProduct বেছে নিন:", InlineKeyboardMarkup(keyboard))
 
 async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int):
     with db() as conn:
@@ -389,13 +454,13 @@ async def select_package_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         [InlineKeyboardButton(f"{opt['amount']} ➔ ৳{opt['price']}", callback_data=f"package_{product_id}_{idx}")]
         for idx, opt in enumerate(options)
     ]
-    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="shop")])
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"category_{product['category']}")])
     await edit_or_reply(
         update,
         f"⚡ <b>{product['icon']} {product['name']}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📝 {product['description']}\n\n"
-        f"Choose a package:",
+        f"একটি প্যাকেজ বেছে নিন:",
         InlineKeyboardMarkup(keyboard)
     )
 
@@ -415,25 +480,27 @@ async def package_selected_handler(update: Update, context: ContextTypes.DEFAULT
             f"❌ <b>Insufficient balance</b>\n"
             f"Your balance: ৳{user_row['balance']:.2f}\n"
             f"Needed: ৳{price:.2f}\n\n"
-            f"➕ Recharge your wallet first."
+            f"➕ Recharge your wallet first.",
+            parse_mode=ParseMode.HTML
         )
         return ConversationHandler.END
     context.user_data["order_product_id"] = product_id
     context.user_data["order_product_name"] = product["name"]
     context.user_data["order_package"] = selected_package
-    context.user_data["order_product_type"] = product["product_type"]
+    context.user_data["order_delivery_type"] = product["delivery_type"]
 
-    if product["product_type"] == "game":
+    if product["delivery_type"] == "manual":
         await query.message.reply_text(
             f"🛒 <b>Confirm Checkout</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📦 {product['name']}\n"
             f"📎 {selected_package['amount']}\n"
             f"💰 Price: ৳{price}\n\n"
-            f"👉 Enter your <b>Game ID / UID</b> (min 3 chars):"
+            f"👉 Enter your <b>Game ID / UID</b> (min 3 chars):",
+            parse_mode=ParseMode.HTML
         )
         return ORDER_DETAILS_STATE
-    else:  # vpn / streaming – no need user input, place order directly
+    else:  # auto‑delivery – no user input needed, place order directly
         return await place_order_for_digital_product(update, context)
 
 async def place_order_for_digital_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -443,10 +510,6 @@ async def place_order_for_digital_product(update: Update, context: ContextTypes.
     price = package["price"]
     tid = str(update.effective_user.id)
     order_id = f"SKY-{int(datetime.now().timestamp())}-{secrets.token_hex(2).upper()}"
-    valid_days = package.get("valid_days", 0)
-    expiry_date = None
-    if valid_days > 0:
-        expiry_date = (datetime.now() + timedelta(days=valid_days)).strftime("%d %b %Y")
 
     with db() as conn:
         conn.execute(
@@ -454,6 +517,7 @@ async def place_order_for_digital_product(update: Update, context: ContextTypes.
             (order_id, tid, product_id, product_name, package["amount"], price, "")
         )
         conn.execute("UPDATE users SET balance = balance - ? WHERE telegram_id = ?", (price, tid))
+    delivery_type = context.user_data.get("order_delivery_type", "auto")
     context.user_data.clear()
 
     await smart_reply(update,
@@ -463,7 +527,6 @@ async def place_order_for_digital_product(update: Update, context: ContextTypes.
         f"💰 Deducted: ৳{price}\n"
         f"⚡ Admin will process within 5–15 mins."
     )
-    # notify admin
     try:
         await update.effective_chat.bot.send_message(
             Config.ADMIN_USER_ID,
@@ -471,11 +534,11 @@ async def place_order_for_digital_product(update: Update, context: ContextTypes.
             f"👤 {tid}\n"
             f"🆔 <code>{order_id}</code>\n"
             f"📦 {product_name} ({package['amount']})\n"
-            f"Type: {context.user_data.get('order_product_type','?')}",
+            f"Delivery: {delivery_type}",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}"),
-                 InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
+                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}")],
+                [InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
             ])
         )
     except Exception as e:
@@ -489,7 +552,6 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
         return ORDER_DETAILS_STATE
     context.user_data["order_user_details"] = details
 
-    # for game products we place order with user details
     product_id = context.user_data["order_product_id"]
     product_name = context.user_data["order_product_name"]
     package = context.user_data["order_package"]
@@ -508,7 +570,8 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 <code>{order_id}</code>\n"
         f"💰 Deducted: ৳{price}\n"
-        f"⚡ Admin will process within 5–15 mins."
+        f"⚡ Admin will process within 5–15 mins.",
+        parse_mode=ParseMode.HTML
     )
     try:
         await update.effective_chat.bot.send_message(
@@ -520,8 +583,8 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
             f"ℹ️ UID: <code>{details}</code>",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}"),
-                 InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
+                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{order_id}")],
+                [InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{order_id}")]
             ])
         )
     except Exception as e:
@@ -529,16 +592,16 @@ async def receive_order_details_handler(update: Update, context: ContextTypes.DE
     return ConversationHandler.END
 
 # ─────────────────────────────────────────────
-# 💰 DEPOSIT (with preset buttons)
+# 💰 DEPOSIT (single‑column preset buttons)
 # ─────────────────────────────────────────────
 async def show_recharge_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📱 bKash", callback_data="recharge_bkash"),
-         InlineKeyboardButton("📱 Nagad", callback_data="recharge_nagad")],
+        [InlineKeyboardButton("📱 bKash", callback_data="recharge_bkash")],
+        [InlineKeyboardButton("📱 Nagad", callback_data="recharge_nagad")],
         [InlineKeyboardButton("📱 Rocket", callback_data="recharge_rocket")],
         [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")]
     ]
-    await edit_or_reply(update, "💳 <b>Instant Recharge</b>\n━━━━━━━━━━━━━━━\nChoose your method:", InlineKeyboardMarkup(keyboard))
+    await edit_or_reply(update, "💳 <b>Instant Recharge</b>\n━━━━━━━━━━━━━━━\nমেথড বেছে নিন:", InlineKeyboardMarkup(keyboard))
 
 async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DEFAULT_TYPE, method: str):
     numbers = {"bkash": Config.BKASH_NUMBER, "nagad": Config.NAGAD_NUMBER, "rocket": Config.ROCKET_NUMBER}
@@ -547,8 +610,8 @@ async def show_recharge_instructions_ui(update: Update, context: ContextTypes.DE
         update,
         f"💳 <b>{method.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"Send money to: <code>{numbers[method]}</code>\n"
-        f"Then select the amount you sent:",
+        f"এই নাম্বারে টাকা পাঠান: <code>{numbers[method]}</code>\n"
+        f"তারপর যত টাকা পাঠিয়েছেন সেই এমাউন্ট বেছে নিন:",
         deposit_amount_keyboard()
     )
     return ADD_MONEY_AMOUNT
@@ -560,11 +623,11 @@ async def deposit_amount_button(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("depamt_"):
         amt_str = data.split("_")[1]
         if amt_str == "custom":
-            await query.message.reply_text("💬 Type the exact amount you sent (৳):")
+            await query.message.reply_text("💬 যত টাকা পাঠিয়েছেন সেটি লিখুন (৳):")
             return ADD_MONEY_AMOUNT
         amount = float(amt_str)
         context.user_data["recharge_amount"] = amount
-        await query.message.reply_text("🔑 Now send the <b>Transaction ID (TrxID)</b>:")
+        await query.message.reply_text("🔑 এবার <b>Transaction ID (TrxID)</b> পাঠান:", parse_mode=ParseMode.HTML)
         return ADD_MONEY_TRX
     return ADD_MONEY_AMOUNT
 
@@ -578,7 +641,7 @@ async def add_money_amount_handler(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(f"❌ Minimum ৳{Config.MIN_DEPOSIT}. Try again:")
         return ADD_MONEY_AMOUNT
     context.user_data["recharge_amount"] = amount
-    await update.message.reply_text("🔑 Now send the <b>Transaction ID (TrxID)</b>:")
+    await update.message.reply_text("🔑 এবার <b>Transaction ID (TrxID)</b> পাঠান:", parse_mode=ParseMode.HTML)
     return ADD_MONEY_TRX
 
 async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -603,7 +666,8 @@ async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"💳 {method.upper()}\n"
         f"💰 ৳{amount:.2f}\n"
         f"🔑 <code>{trx}</code>\n\n"
-        f"⚡ Verification in 2–5 minutes."
+        f"⚡ Verification in 2–5 minutes.",
+        parse_mode=ParseMode.HTML
     )
     try:
         await update.effective_chat.bot.send_message(
@@ -614,8 +678,8 @@ async def add_money_trx_handler(update: Update, context: ContextTypes.DEFAULT_TY
             f"🔑 <code>{trx}</code>",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{req_id}"),
-                 InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{req_id}")]
+                [InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{req_id}")],
+                [InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{req_id}")]
             ])
         )
     except Exception as e:
@@ -636,16 +700,17 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
         mmode = conn.execute("SELECT value FROM settings WHERE key='maintenance_mode'").fetchone()["value"]
     mm_btn = "🟢 Turn ON Maintenance" if mmode == "OFF" else "🔴 Turn OFF Maintenance"
     keyboard = [
-        [InlineKeyboardButton("📊 Orders", callback_data="adm_view_orders"),
-         InlineKeyboardButton("💰 Deposits", callback_data="adm_view_deposits")],
-        [InlineKeyboardButton("👤 Edit Balance", callback_data="adm_balance_set"),
-         InlineKeyboardButton("📦 Add Product", callback_data="adm_product_add")],
-        [InlineKeyboardButton("➕ Add Stock", callback_data="adm_add_stock"),
-         InlineKeyboardButton("🗄️ Stock List", callback_data="adm_view_stock")],
-        [InlineKeyboardButton("📤 Backup DB", callback_data="adm_backup_db"),
-         InlineKeyboardButton("📥 Restore DB", callback_data="adm_restore_db")],
-        [InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"),
-         InlineKeyboardButton("🔍 Search User", callback_data="adm_search_user")],
+        [InlineKeyboardButton("📊 Orders", callback_data="adm_view_orders")],
+        [InlineKeyboardButton("💰 Deposits", callback_data="adm_view_deposits")],
+        [InlineKeyboardButton("👤 Edit Balance", callback_data="adm_balance_set")],
+        [InlineKeyboardButton("📦 Add Product", callback_data="adm_product_add")],
+        [InlineKeyboardButton("🗂️ Manage Categories", callback_data="adm_view_categories")],
+        [InlineKeyboardButton("➕ Add Stock", callback_data="adm_add_stock")],
+        [InlineKeyboardButton("🗄️ Stock List", callback_data="adm_view_stock")],
+        [InlineKeyboardButton("📤 Backup DB", callback_data="adm_backup_db")],
+        [InlineKeyboardButton("📥 Restore DB", callback_data="adm_restore_db")],
+        [InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast")],
+        [InlineKeyboardButton("🔍 Search User", callback_data="adm_search_user")],
         [InlineKeyboardButton(mm_btn, callback_data="adm_toggle_maintenance")],
         [InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main")]
     ]
@@ -658,6 +723,21 @@ async def show_admin_panel_ui(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"💵 Pending: {pend_deps}\n"
         f"⚙️ Maintenance: <b>{mmode}</b>",
         InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_categories_admin_ui(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cats = get_all_categories()
+    if not cats:
+        await update.callback_query.message.reply_text("📭 কোনো ক্যাটাগরি নেই।")
+        return
+    with db() as conn:
+        lines = ["🗂️ <b>All Categories</b>\n━━━━━━━━━━━━━━━━━━━━"]
+        for c in cats:
+            cnt = conn.execute("SELECT COUNT(*) FROM products WHERE category=? AND is_active=1", (c["name"],)).fetchone()[0]
+            lines.append(f"{c['icon']} <b>{UIBuilder.safe_text(c['name'])}</b> — {cnt} active product(s)")
+    await update.callback_query.message.reply_text(
+        "\n".join(lines) + "\n\n➕ নতুন প্রোডাক্ট যোগ করার সময় নতুন ক্যাটাগরিও তৈরি করা যায়।",
+        parse_mode=ParseMode.HTML
     )
 
 async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -673,6 +753,9 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
         with db() as conn:
             conn.execute("UPDATE settings SET value = ? WHERE key = 'maintenance_mode'", (new,))
         await show_admin_panel_ui(update, context)
+
+    elif data == "adm_view_categories":
+        await show_categories_admin_ui(update, context)
 
     elif data == "adm_backup_db":
         file = f"backup_{int(datetime.now().timestamp())}.db"
@@ -704,8 +787,8 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
                 f"ℹ️ {o['user_details'] or 'No details'}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{o['order_id']}"),
-                     InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{o['order_id']}")]
+                    [InlineKeyboardButton("✅ Approve", callback_data=f"adm_ord_approve_{o['order_id']}")],
+                    [InlineKeyboardButton("❌ Reject", callback_data=f"adm_ord_reject_{o['order_id']}")]
                 ])
             )
     elif data == "adm_view_deposits":
@@ -721,8 +804,8 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
                 f"🔑 <code>{d['trx_id']}</code>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['request_id']}"),
-                     InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['request_id']}")]
+                    [InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['request_id']}")],
+                    [InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['request_id']}")]
                 ])
             )
     elif data == "adm_view_stock":
@@ -736,7 +819,6 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
             msg += f"• {s['name']} | {s['email']} | status: {s['status']}\n"
         await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
-    # approve/reject order
     elif data.startswith("adm_ord_approve_"):
         oid = data.replace("adm_ord_approve_", "")
         await process_order_approval(update, context, oid, approve=True)
@@ -744,7 +826,6 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
         oid = data.replace("adm_ord_reject_", "")
         await process_order_approval(update, context, oid, approve=False)
 
-    # approve/reject deposit
     elif data.startswith("adm_dep_approve_"):
         rid = data.replace("adm_dep_approve_", "")
         await process_deposit(update, context, rid, approve=True)
@@ -768,15 +849,13 @@ async def process_order_approval(update: Update, context: ContextTypes.DEFAULT_T
         if approve:
             conn.execute("UPDATE orders SET status='✅ Completed' WHERE order_id=?", (order_id,))
             await edit_or_reply(update, f"✅ Order {order_id} completed.")
-            # If it's a digital product, try to auto-deliver account
             if order["product_id"]:
-                product = conn.execute("SELECT product_type FROM products WHERE id=?", (order["product_id"],)).fetchone()
-                if product and product["product_type"] in ("vpn", "streaming"):
+                product = conn.execute("SELECT delivery_type FROM products WHERE id=?", (order["product_id"],)).fetchone()
+                if product and product["delivery_type"] == "auto":
                     stock = conn.execute("SELECT * FROM account_stock WHERE product_id=? AND status='available' LIMIT 1", (order["product_id"],)).fetchone()
                     if stock:
                         conn.execute("UPDATE account_stock SET status='sold', order_id=?, sold_at=CURRENT_TIMESTAMP WHERE id=?",
                                      (order_id, stock["id"]))
-                        # calculate expiry
                         options = json.loads(conn.execute("SELECT options FROM products WHERE id=?", (order["product_id"],)).fetchone()["options"])
                         pkg = next((o for o in options if o["amount"] == order["package"]), None)
                         valid_days = pkg.get("valid_days", 30) if pkg else 30
@@ -801,7 +880,6 @@ async def process_order_approval(update: Update, context: ContextTypes.DEFAULT_T
                         except Exception as e:
                             logger.error(f"Delivery notify failed: {e}")
                     else:
-                        # no stock – notify admin
                         await context.bot.send_message(
                             Config.ADMIN_USER_ID,
                             f"⚠️ <b>No stock available</b> for order {order_id} ({order['product_name']}). Please add stock manually.",
@@ -813,7 +891,8 @@ async def process_order_approval(update: Update, context: ContextTypes.DEFAULT_T
             await edit_or_reply(update, f"❌ Order {order_id} rejected (refunded).")
             try:
                 await context.bot.send_message(order["telegram_id"], f"❌ Order <code>{order_id}</code> rejected. ৳{order['price']} refunded.", parse_mode=ParseMode.HTML)
-            except: pass
+            except Exception:
+                pass
 
 async def process_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE, request_id: str, approve: bool):
     with db() as conn:
@@ -827,50 +906,95 @@ async def process_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE, re
             await edit_or_reply(update, f"✅ Deposit {request_id} approved.")
             try:
                 await context.bot.send_message(dep["telegram_id"], f"💰 ৳{dep['amount']} added to your wallet.")
-            except: pass
+            except Exception:
+                pass
         else:
             conn.execute("UPDATE deposit_requests SET status='❌ Rejected' WHERE request_id=?", (request_id,))
             await edit_or_reply(update, f"❌ Deposit {request_id} rejected.")
             try:
                 await context.bot.send_message(dep["telegram_id"], "❌ Your recharge was rejected. Contact support.")
-            except: pass
+            except Exception:
+                pass
 
 # ─────────────────────────────────────────────
-# ➕ ADMIN PRODUCT ADDITION (with type & valid_days)
+# ➕ ADMIN PRODUCT ADDITION
+# — this is the flow that fixes "নতুন ক্যাটাগরি এড করলে ইউজার দেখে না":
+# every product is tied to a category, and show_categories_ui always
+# re‑reads the DB, so a brand‑new category shows up immediately.
 # ─────────────────────────────────────────────
 async def start_product_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    kb = [
-        [InlineKeyboardButton("Game", callback_data="prodtype_game"),
-         InlineKeyboardButton("VPN", callback_data="prodtype_vpn"),
-         InlineKeyboardButton("Streaming", callback_data="prodtype_streaming")]
-    ]
-    await update.callback_query.message.reply_text("📂 Select product type:", reply_markup=InlineKeyboardMarkup(kb))
-    return ADMIN_ADD_PROD_TYPE
+    cats = get_all_categories()
+    kb = [[InlineKeyboardButton(f"{c['icon']} {c['name']}", callback_data=f"cat_{c['name']}")] for c in cats]
+    kb.append([InlineKeyboardButton("➕ নতুন ক্যাটাগরি তৈরি করুন", callback_data="cat_new")])
+    await update.callback_query.message.reply_text(
+        "🗂️ কোন ক্যাটাগরিতে প্রোডাক্ট যোগ করবেন?\n"
+        "(নতুন কিছু বিক্রি করতে চাইলে — যেমন Proxy বা YouTube Premium — নিচে থেকে <b>➕ নতুন ক্যাটাগরি</b> চাপুন)",
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode=ParseMode.HTML
+    )
+    return ADMIN_ADD_PROD_CAT
 
-async def prod_type_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def prod_cat_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    ptype = query.data.split("_")[1]  # game, vpn, streaming
-    context.user_data["new_prod_type"] = ptype
-    # choose category based on type
-    cat_map = {"game": "game", "vpn": "vpn", "streaming": "streaming"}
-    context.user_data["new_prod_cat"] = cat_map[ptype]
-    await query.message.reply_text("📦 Enter the <b>product name</b> (e.g., Express VPN):")
+    if query.data == "cat_new":
+        await query.message.reply_text("✏️ নতুন ক্যাটাগরির নাম লিখুন (যেমন: YouTube Premium):")
+        return ADMIN_ADD_PROD_NEWCAT_NAME
+    cat_name = query.data.replace("cat_", "", 1)
+    context.user_data["new_prod_cat"] = cat_name
+    return await ask_delivery_type(update, context)
+
+async def prod_newcat_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["pending_new_cat_name"] = update.message.text.strip()
+    await update.message.reply_text("🎨 এই ক্যাটাগরির জন্য একটি ইমোজি আইকন পাঠান (যেমন: ▶️, 🌐, 🎮):")
+    return ADMIN_ADD_PROD_NEWCAT_ICON
+
+async def prod_newcat_icon_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    icon = update.message.text.strip() or "📦"
+    name = context.user_data.pop("pending_new_cat_name")
+    ensure_category(name, icon)
+    context.user_data["new_prod_cat"] = name
+    return await ask_delivery_type(update, context, use_message=True)
+
+async def ask_delivery_type(update: Update, context: ContextTypes.DEFAULT_TYPE, use_message: bool = False):
+    kb = [
+        [InlineKeyboardButton("🔑 অটো ডেলিভারি (Stock থেকে Email/Password)", callback_data="deliv_auto")],
+        [InlineKeyboardButton("🎮 ম্যানুয়াল (কাস্টমারের Game ID/UID লাগবে)", callback_data="deliv_manual")],
+    ]
+    text = "🚚 ডেলিভারি টাইপ বেছে নিন:"
+    if use_message:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await update.callback_query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb))
+    return ADMIN_ADD_PROD_DELIVERY
+
+async def prod_delivery_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["new_prod_delivery"] = "auto" if query.data == "deliv_auto" else "manual"
+    await query.message.reply_text("📦 এখন প্রোডাক্টের <b>নাম</b> লিখুন (যেমন: World Best VPN Proxy):", parse_mode=ParseMode.HTML)
     return ADMIN_ADD_PROD_NAME
 
 async def prod_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_prod_name"] = update.message.text.strip()
-    await update.message.reply_text("📝 Enter a <b>short description</b>:")
-    return ADMIN_ADD_PROD_DESC
+    await update.message.reply_text("🎨 প্রোডাক্টের জন্য একটি ইমোজি আইকন পাঠান (যেমন: 🌐):")
+    return ADMIN_ADD_PROD_DESC  # icon collected here then description next below, reuse state chain
+
+async def prod_icon_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["new_prod_icon"] = update.message.text.strip() or "📦"
+    await update.message.reply_text("📝 একটি সংক্ষিপ্ত বিবরণ (description) লিখুন:")
+    return ADMIN_ADD_PROD_OPTS  # placeholder, real desc handled below
 
 async def prod_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_prod_desc"] = update.message.text.strip()
     await update.message.reply_text(
-        "💎 Now enter the <b>packages in JSON</b>:\n"
-        "Each package must have <code>amount</code>, <code>price</code>, <code>valid_days</code>\n"
-        "Example:\n"
-        '<code>[{"amount":"1 Month","price":150,"valid_days":30},{"amount":"3 Months","price":400,"valid_days":90}]</code>'
+        "💎 এবার <b>প্যাকেজগুলো JSON আকারে</b> পাঠান:\n"
+        "প্রতিটি প্যাকেজে <code>amount</code>, <code>price</code>, <code>valid_days</code> থাকতে হবে\n"
+        "উদাহরণ:\n"
+        '<code>[{"amount":"1 Month","price":150,"valid_days":30},{"amount":"3 Months","price":400,"valid_days":90}]</code>\n\n'
+        "(ওয়ান-টাইম আইটেমের জন্য <code>valid_days</code> এ 0 দিন)",
+        parse_mode=ParseMode.HTML
     )
     return ADMIN_ADD_PROD_OPTS
 
@@ -879,38 +1003,42 @@ async def prod_opts_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         opts = json.loads(raw)
         for o in opts:
-            if not all(k in o for k in ("amount","price","valid_days")):
+            if not all(k in o for k in ("amount", "price", "valid_days")):
                 raise ValueError("Missing fields")
     except Exception as e:
-        await update.message.reply_text(f"❌ Invalid JSON: {e}\nPlease try again:")
+        await update.message.reply_text(f"❌ Invalid JSON: {e}\nআবার চেষ্টা করুন:")
         return ADMIN_ADD_PROD_OPTS
-    ptype = context.user_data["new_prod_type"]
     cat = context.user_data["new_prod_cat"]
+    delivery = context.user_data["new_prod_delivery"]
     name = context.user_data["new_prod_name"]
+    icon = context.user_data.get("new_prod_icon", "📦")
     desc = context.user_data["new_prod_desc"]
-    icon = {"game":"🎮","vpn":"🔐","streaming":"🍿"}.get(ptype,"📦")
     with db() as conn:
         conn.execute(
-            "INSERT INTO products (name, category, product_type, icon, description, options) VALUES (?,?,?,?,?,?)",
-            (name, cat, ptype, icon, desc, raw)
+            "INSERT INTO products (name, category, delivery_type, icon, description, options) VALUES (?,?,?,?,?,?)",
+            (name, cat, delivery, icon, desc, raw)
         )
     context.user_data.clear()
-    await update.message.reply_text("✅ Product added successfully!")
+    await update.message.reply_text(
+        f"✅ <b>{UIBuilder.safe_text(name)}</b> এখন <b>{UIBuilder.safe_text(cat)}</b> ক্যাটাগরিতে লাইভ!\n"
+        f"ইউজাররা এখনই শপ মেনু থেকে এটি দেখতে ও কিনতে পারবে। 🎉",
+        parse_mode=ParseMode.HTML
+    )
     return ConversationHandler.END
 
 # ─────────────────────────────────────────────
-# ➕ ADMIN STOCK ADDITION
+# ➕ ADMIN STOCK ADDITION (auto‑delivery products only)
 # ─────────────────────────────────────────────
 async def start_stock_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     with db() as conn:
-        products = conn.execute("SELECT id, name FROM products WHERE product_type IN ('vpn','streaming')").fetchall()
+        products = conn.execute("SELECT id, name FROM products WHERE delivery_type = 'auto'").fetchall()
     if not products:
-        await update.callback_query.message.reply_text("❌ No VPN/Streaming products exist.")
+        await update.callback_query.message.reply_text("❌ কোনো অটো-ডেলিভারি প্রোডাক্ট নেই। আগে একটি প্রোডাক্ট যোগ করুন।")
         return ConversationHandler.END
     kb = [[InlineKeyboardButton(p["name"], callback_data=f"stockprod_{p['id']}")] for p in products]
     kb.append([InlineKeyboardButton("❌ Cancel", callback_data="back_main")])
-    await update.callback_query.message.reply_text("📦 Select the product to add stock for:", reply_markup=InlineKeyboardMarkup(kb))
+    await update.callback_query.message.reply_text("📦 কোন প্রোডাক্টের জন্য স্টক যোগ করবেন?", reply_markup=InlineKeyboardMarkup(kb))
     return ADMIN_ADD_STOCK_PROD
 
 async def stock_prod_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -918,24 +1046,18 @@ async def stock_prod_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     prod_id = int(query.data.split("_")[1])
     context.user_data["stock_product_id"] = prod_id
-    await query.message.reply_text("📧 Enter the <b>email</b> for this account:")
+    await query.message.reply_text("📧 এই অ্যাকাউন্টের <b>email</b> দিন:", parse_mode=ParseMode.HTML)
     return ADMIN_ADD_STOCK_EMAIL
 
 async def stock_email_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["stock_email"] = update.message.text.strip()
-    await update.message.reply_text("🔑 Enter the <b>password</b>:")
+    await update.message.reply_text("🔑 <b>password</b> দিন:", parse_mode=ParseMode.HTML)
     return ADMIN_ADD_STOCK_PASSWORD
 
 async def stock_password_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["stock_password"] = update.message.text.strip()
-    with db() as conn:
-        prod = conn.execute("SELECT name FROM products WHERE id=?", (context.user_data["stock_product_id"],)).fetchone()
-    if prod and "hma" in prod["name"].lower():
-        await update.message.reply_text("🔐 This product requires an <b>activation key</b>. Please enter it (or type 'skip'):")
-        return ADMIN_ADD_STOCK_ACTIVATION
-    else:
-        # save directly
-        return await save_stock(update, context)
+    await update.message.reply_text("🔐 এক্টিভেশন কী থাকলে দিন, না থাকলে 'skip' লিখুন:")
+    return ADMIN_ADD_STOCK_ACTIVATION
 
 async def stock_activation_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     key = update.message.text.strip()
@@ -981,7 +1103,7 @@ async def bal_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amt = float(update.message.text.strip())
-    except:
+    except ValueError:
         await update.message.reply_text("❌ Invalid amount. Try again:")
         return ADMIN_SET_BAL_AMT
     tid = context.user_data.get("tgt_bal_id")
@@ -993,11 +1115,12 @@ async def bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_db_restore_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("📥 Send your backup <code>.db</code> file.\n⚠️ This will replace current data.")
+    await update.callback_query.message.reply_text("📥 Send your backup <code>.db</code> file.\n⚠️ This will replace current data.", parse_mode=ParseMode.HTML)
     return ADMIN_RESTORE_DB_STATE
 
 async def db_file_restore_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
+    if not is_admin(get_user(str(update.effective_user.id))):
+        return ConversationHandler.END
     doc = update.message.document
     if not doc or not doc.file_name.endswith(".db"):
         await update.message.reply_text("❌ Only .db files accepted.")
@@ -1018,7 +1141,8 @@ async def db_file_restore_received(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 async def broadcast_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
+    if not is_admin(get_user(str(update.effective_user.id))):
+        return ConversationHandler.END
     text = update.message.text
     with db() as conn:
         users = conn.execute("SELECT telegram_id FROM users").fetchall()
@@ -1027,12 +1151,14 @@ async def broadcast_message_handler(update: Update, context: ContextTypes.DEFAUL
         try:
             await context.bot.send_message(u["telegram_id"], text)
             sent += 1
-        except: pass
+        except Exception:
+            pass
     await update.message.reply_text(f"✅ Broadcast sent to {sent}/{len(users)} users.")
     return ConversationHandler.END
 
 async def search_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(get_user(str(update.effective_user.id))): return ConversationHandler.END
+    if not is_admin(get_user(str(update.effective_user.id))):
+        return ConversationHandler.END
     q = update.message.text.strip()
     user = get_user(q)
     if not user:
@@ -1123,7 +1249,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data in routes:
         await routes[data](update, context)
     elif data.startswith("category_"):
-        await show_products_ui(update, context, data.replace("category_", ""))
+        await show_products_ui(update, context, data.replace("category_", "", 1))
     elif data.startswith("product_"):
         await select_package_ui(update, context, int(data.replace("product_", "")))
     elif data.startswith("depamt_"):
@@ -1136,7 +1262,6 @@ def main():
     init_db()
     app = Application.builder().token(Config.BOT_TOKEN).build()
 
-    # Registration
     reg_handler = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
@@ -1146,7 +1271,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Order (game only needs details)
     order_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(package_selected_handler, pattern=r"^package_\d+_\d+$")],
         states={
@@ -1155,7 +1279,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Deposit
     deposit_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(show_recharge_instructions_ui, pattern=r"^recharge_(bkash|nagad|rocket)$")],
         states={
@@ -1168,7 +1291,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin balance
     admin_bal_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_balance_set, pattern="^adm_balance_set$")],
         states={
@@ -1178,19 +1300,22 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin product add
+    # Admin product add — dynamic category + delivery-type flow
     admin_prod_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_product_add, pattern="^adm_product_add$")],
         states={
-            ADMIN_ADD_PROD_TYPE: [CallbackQueryHandler(prod_type_received, pattern="^prodtype_")],
+            ADMIN_ADD_PROD_CAT: [CallbackQueryHandler(prod_cat_received, pattern="^cat_")],
+            ADMIN_ADD_PROD_NEWCAT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_newcat_name_received)],
+            ADMIN_ADD_PROD_NEWCAT_ICON: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_newcat_icon_received)],
+            ADMIN_ADD_PROD_DELIVERY: [CallbackQueryHandler(prod_delivery_received, pattern="^deliv_")],
             ADMIN_ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_name_received)],
-            ADMIN_ADD_PROD_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_desc_received)],
-            ADMIN_ADD_PROD_OPTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_opts_received)],
+            # chain: icon -> description -> options, reusing enum slots in order
+            ADMIN_ADD_PROD_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_icon_received)],
+            ADMIN_ADD_PROD_OPTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, prod_desc_received)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin stock add
     admin_stock_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_stock_add, pattern="^adm_add_stock$")],
         states={
@@ -1202,7 +1327,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin restore DB
     admin_restore_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_db_restore_process, pattern="^adm_restore_db$")],
         states={
@@ -1211,18 +1335,16 @@ def main():
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin broadcast
     broadcast_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(lambda u,c: ADMIN_BROADCAST_MSG, pattern="^adm_broadcast$")],
+        entry_points=[CallbackQueryHandler(lambda u, c: ADMIN_BROADCAST_MSG, pattern="^adm_broadcast$")],
         states={
             ADMIN_BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_message_handler)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
 
-    # Admin search
     search_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(lambda u,c: ADMIN_SEARCH_USER, pattern="^adm_search_user$")],
+        entry_points=[CallbackQueryHandler(lambda u, c: ADMIN_SEARCH_USER, pattern="^adm_search_user$")],
         states={
             ADMIN_SEARCH_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, search_user_handler)],
         },
@@ -1240,7 +1362,10 @@ def main():
     app.add_handler(search_handler)
 
     app.add_handler(CallbackQueryHandler(admin_callback_router, pattern=r"^adm_"))
-    app.add_handler(CallbackQueryHandler(button_callback, pattern=r"^(?!package_)(?!adm_)(?!depamt_)(?!prodtype_)(?!stockprod_)"))
+    app.add_handler(CallbackQueryHandler(
+        button_callback,
+        pattern=r"^(?!package_)(?!adm_)(?!depamt_)(?!cat_)(?!deliv_)(?!stockprod_)"
+    ))
 
     logger.info("💫 SKY TopUp Ultimate launched...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
