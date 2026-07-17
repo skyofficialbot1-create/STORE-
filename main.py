@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.2 — Stock type buttons added
+Version 3.3 — Stock expiry inheritance fix + all previous enhancements
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -507,7 +507,7 @@ class AdminFlow(StatesGroup):
     editprod_value = State()
     stock_target = State()
     stock_input = State()
-    stock_type_choice = State()  # ★ NEW: for button-based stock type selection ★
+    stock_type_choice = State()
     promo_code = State()
     promo_amount = State()
     promo_discount = State()
@@ -650,7 +650,8 @@ async def process_payment(
     if is_auto:
         stock = db.get_available_stock(prod["id"])
         if stock:
-            stock_expiry = stock.get("expiry_days", prod.get("expiry_days", 30))
+            # Stock's expiry if set, otherwise product's expiry, fallback 30
+            stock_expiry = stock.get("expiry_days") or prod.get("expiry_days", 30)
             delivery_data = {}
             if stock["stock_type"] == "key_only":
                 delivery_data["key"] = stock["key_data"]
@@ -1705,7 +1706,6 @@ async def stock_add_start(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("🔑 *Add Stock*\nSelect a product:", reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_target)
 
-# ★ FIXED: Now shows inline buttons for stock type instead of asking user to type ★
 @dp.callback_query(lambda c: c.data.startswith("stkprod_"))
 async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1730,11 +1730,9 @@ async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_type_choice)
 
-# ★ NEW: Handles button click for stock type selection ★
 @dp.callback_query(lambda c: c.data.startswith("stktype_"), AdminFlow.stock_type_choice)
 async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    # parse: stktype_keyonly_{pid}  or  stktype_emailpass_{pid}
     parts = call.data.split("_", 2)  # ["stktype", "keyonly", "{pid}"]
     if len(parts) < 3:
         return
@@ -1744,12 +1742,7 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     if not prod:
         return
 
-    # Map button type to actual stock_type
-    if chosen_type == "keyonly":
-        stock_type = "key_only"
-    else:
-        stock_type = "email_pass"
-
+    stock_type = "key_only" if chosen_type == "keyonly" else "email_pass"
     await state.update_data(stock_target=pid, stock_type=stock_type)
 
     lines = [
@@ -1773,31 +1766,36 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_input)
 
-# ── STOCK HANDLERS (Text & File) ──────────────────────────────────────────────
+# ★ FIXED: Stock text input now inherits product's expiry_days ★
 @dp.message(AdminFlow.stock_input, F.text)
 async def stock_input_text(msg: Message, state: FSMContext):
     data = await state.get_data()
     pid = data["stock_target"]
     stype = data["stock_type"]
+    prod = db.get_product(pid)  # get product for expiry
+    expiry = prod["expiry_days"] if prod else 30
     lines_input = [l.strip() for l in msg.text.split("\n") if l.strip()]
     added = 0
     for line in lines_input:
         if stype == "key_only":
-            db.add_stock(pid, "key_only", key_data=line)
+            db.add_stock(pid, "key_only", key_data=line, expiry_days=expiry)
             added += 1
         else:
             parts = re.split(r'[:|]', line, maxsplit=1)
             if len(parts) == 2:
-                db.add_stock(pid, "email_pass", email=parts[0].strip(), password=parts[1].strip())
+                db.add_stock(pid, "email_pass", email=parts[0].strip(), password=parts[1].strip(), expiry_days=expiry)
                 added += 1
-    await msg.answer(f"✅ {added} stock items added!", reply_markup=admin_stock_kb())
+    await msg.answer(f"✅ {added} stock items added (expiry: {expiry} days)!", reply_markup=admin_stock_kb())
     await state.clear()
 
+# ★ FIXED: Stock file upload now inherits product's expiry_days ★
 @dp.message(AdminFlow.stock_input, F.document)
 async def stock_file_upload(msg: Message, state: FSMContext):
     data = await state.get_data()
     pid = data["stock_target"]
     stype = data["stock_type"]
+    prod = db.get_product(pid)
+    expiry = prod["expiry_days"] if prod else 30
     doc = msg.document
     if not doc.file_name.endswith(".txt"):
         return await msg.answer("❌ Please upload a `.txt` file.")
@@ -1814,14 +1812,14 @@ async def stock_file_upload(msg: Message, state: FSMContext):
     added = 0
     for line in lines_input:
         if stype == "key_only":
-            db.add_stock(pid, "key_only", key_data=line)
+            db.add_stock(pid, "key_only", key_data=line, expiry_days=expiry)
             added += 1
         else:
             parts = re.split(r'[:|]', line, maxsplit=1)
             if len(parts) == 2:
-                db.add_stock(pid, "email_pass", email=parts[0].strip(), password=parts[1].strip())
+                db.add_stock(pid, "email_pass", email=parts[0].strip(), password=parts[1].strip(), expiry_days=expiry)
                 added += 1
-    await msg.answer(f"✅ {added} stock items added from file!", reply_markup=admin_stock_kb())
+    await msg.answer(f"✅ {added} stock items added from file (expiry: {expiry} days)!", reply_markup=admin_stock_kb())
     await state.clear()
 
 @dp.callback_query(lambda c: c.data == "stock_del")
@@ -2146,7 +2144,7 @@ async def deliver_file(msg: Message, state: FSMContext):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.2 starting...")
+    print("🚀 SKY STORE BD Bot v3.3 starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
