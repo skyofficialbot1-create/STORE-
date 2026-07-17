@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.3 — Full bug fixes: DB sync, UI refresh, global button system
+Version 3.2 — Stock type buttons added
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -507,7 +507,7 @@ class AdminFlow(StatesGroup):
     editprod_value = State()
     stock_target = State()
     stock_input = State()
-    stock_type_choice = State()
+    stock_type_choice = State()  # ★ NEW: for button-based stock type selection ★
     promo_code = State()
     promo_amount = State()
     promo_discount = State()
@@ -540,29 +540,12 @@ def btn(text, callback_data, style=None):
         kwargs["style"] = style.value if hasattr(style, 'value') else style
     return InlineKeyboardButton(**kwargs)
 
-# ★ FIX #1: User-side visibility — now fetches ALL active categories (including subcategories)
-# for the main menu, so newly added subcategories appear immediately
 def main_menu_kb(uid):
     kb = InlineKeyboardBuilder()
-    # Show all top-level categories AND subcategories that have products
-    all_cats = db.get_all_categories()
-    for cat in all_cats:
+    cats = db.get_categories()
+    for cat in cats:
         emoji = cat.get('icon', '📦')
-        # Check if this category (or its subcategories) has products
-        prods = db.get_products(cat['id'])
-        subcats = db.get_categories(parent_id=cat['id'])
-        has_items = len(prods) > 0
-        # Also check subcategories for products
-        for sc in subcats:
-            sc_prods = db.get_products(sc['id'])
-            if len(sc_prods) > 0:
-                has_items = True
-                break
-        # Always show parent categories; show subcats only if they have products
-        if cat.get('parent_id') is None:
-            kb.button(text=f"{emoji} {cat['name']}", callback_data=f"cat_{cat['id']}", style=ButtonStyle.PRIMARY)
-        elif has_items:
-            kb.button(text=f"{emoji} {cat['name']}", callback_data=f"cat_{cat['id']}", style=ButtonStyle.PRIMARY)
+        kb.button(text=f"{emoji} {cat['name']}", callback_data=f"cat_{cat['id']}", style=ButtonStyle.PRIMARY)
     kb.adjust(2)
     kb.row(
         btn("📜 My Orders", "my_orders"),
@@ -600,7 +583,6 @@ def admin_kb():
     kb.row(btn("🏠 Main Menu", "main_menu"))
     return kb.as_markup()
 
-# ★ FIX #2: Auto-refresh — admin_cats_kb now always fetches fresh data
 def admin_cats_kb():
     kb = InlineKeyboardBuilder()
     for cat in db.get_all_categories():
@@ -815,24 +797,15 @@ async def view_category(call: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardBuilder()
         for sc in subcats:
             emoji = sc.get('icon', '📦')
-            # ★ FIX #1: Show subcategory only if it has products or its own subcategories have products
-            sc_prods = db.get_products(sc['id'])
-            sc_subcats = db.get_categories(parent_id=sc['id'])
-            has_prods = len(sc_prods) > 0
-            for ssc in sc_subcats:
-                if len(db.get_products(ssc['id'])) > 0:
-                    has_prods = True
-                    break
-            if has_prods or len(sc_subcats) > 0:
-                kb.button(text=f"{emoji} {sc['name']}", callback_data=f"subcat_{sc['id']}", style=ButtonStyle.PRIMARY)
+            kb.button(text=f"{emoji} {sc['name']}", callback_data=f"subcat_{sc['id']}", style=ButtonStyle.PRIMARY)
         kb.adjust(1)
         kb.row(btn("🔙 Main Menu", "main_menu"))
-        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a subcategory:"
+        title = f"{cat.get('icon', '📦')} *{cat['name']}\nSelect a subcategory:*"
         await call.message.edit_text(title, reply_markup=kb.as_markup(), parse_mode="Markdown")
         return
     prods = db.get_products(cat_id)
     if prods:
-        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a product:"
+        title = f"{cat.get('icon', '📦')} *{cat['name']}\nSelect a product:*"
         await call.message.edit_text(title, reply_markup=cat_products_kb(cat_id), parse_mode="Markdown")
     else:
         await call.answer("❌ No products available.", show_alert=True)
@@ -846,7 +819,7 @@ async def view_subcategory(call: CallbackQuery, state: FSMContext):
         return
     prods = db.get_products(subcat_id)
     if prods:
-        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a product:"
+        title = f"{cat.get('icon', '📦')} *{cat['name']}\nSelect a product:*"
         await call.message.edit_text(title, reply_markup=cat_products_kb(subcat_id), parse_mode="Markdown")
     else:
         await call.answer("❌ No products.", show_alert=True)
@@ -1492,7 +1465,6 @@ async def addcat_desc(msg: Message, state: FSMContext):
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(AdminFlow.addcat_icon)
 
-# ★ FIX #2: Category add — auto-refresh admin_cats_kb after creation
 @dp.message(AdminFlow.addcat_icon)
 async def addcat_icon(msg: Message, state: FSMContext):
     icon = msg.text.strip() if msg.text.strip().lower() != "skip" else "📦"
@@ -1508,11 +1480,8 @@ async def addcat_icon(msg: Message, state: FSMContext):
         f"Name: {name}",
         f"ID: `{auto_id}` (auto-generated)",
         f"Icon: {icon}",
-        "",
-        "👇 Updated category list:",
     ]
-    # Auto-refresh: send the success message AND the updated category list
-    await msg.answer("\n".join(lines), reply_markup=admin_cats_kb(), parse_mode="Markdown")
+    await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data.startswith("editcat_"))
@@ -1668,7 +1637,6 @@ async def addprod_price(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Enter a valid number.")
 
-# ★ FIX #3: Global button system — add_product stock type now uses buttons instead of text input
 @dp.message(AdminFlow.addprod_expiry)
 async def addprod_expiry(msg: Message, state: FSMContext):
     try:
@@ -1680,25 +1648,7 @@ async def addprod_expiry(msg: Message, state: FSMContext):
 
         if parent_id in ["vpn", "proxy"] or cat_id in ["vpn", "proxy"]:
             await state.update_data(addprod_expiry=expiry)
-            # ★ BUTTON SYSTEM: Show buttons instead of asking to type
-            lines = [
-                "➕ *Add Product*",
-                "",
-                f"Name: {data['addprod_name']}",
-                f"Price: {fmt(data['addprod_price'])}",
-                f"Expiry: {expiry} days",
-                "",
-                "📌 Select stock type:",
-            ]
-            kb = InlineKeyboardBuilder()
-            pid_temp = generate_id("prod_")
-            await state.update_data(addprod_temp_id=pid_temp)
-            kb.row(
-                btn("🔑 Key Only", f"addprod_stktype_keyonly_{pid_temp}", ButtonStyle.PRIMARY),
-                btn("📧 Email & Password", f"addprod_stktype_emailpass_{pid_temp}", ButtonStyle.PRIMARY)
-            )
-            kb.row(btn("🔙 Back", "admin_menu"))
-            await msg.answer("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+            await msg.answer("Stock type:\n• `email_pass` — Email + Password\n• `key_only` — Just a key/code", parse_mode="Markdown")
             await state.set_state(AdminFlow.addprod_stocktype)
         else:
             auto_id = generate_id("prod_")
@@ -1711,40 +1661,17 @@ async def addprod_expiry(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Enter a valid number of days.")
 
-# ★ NEW: Button handler for add product stock type
-@dp.callback_query(lambda c: c.data.startswith("addprod_stktype_"), AdminFlow.addprod_stocktype)
-async def addprod_stocktype_btn(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    # parse: addprod_stktype_keyonly_{temp_id} or addprod_stktype_emailpass_{temp_id}
-    parts = call.data.split("_", 3)  # ["addprod", "stktype", "keyonly", "{temp_id}"]
-    if len(parts) < 4:
-        return
-    chosen_type = parts[2]  # "keyonly" or "emailpass"
-    stock_type = "key_only" if chosen_type == "keyonly" else "email_pass"
-
+@dp.message(AdminFlow.addprod_stocktype)
+async def addprod_stocktype(msg: Message, state: FSMContext):
+    stype = msg.text.strip().lower()
+    if stype not in ["email_pass", "key_only"]:
+        return await msg.answer("❌ Please type `email_pass` or `key_only`.")
     data = await state.get_data()
-    cat_id = data["addprod_cat"]
-    auto_id = data.get("addprod_temp_id", generate_id("prod_"))
-
-    db.add_product(
-        auto_id,
-        cat_id,
-        data["addprod_name"],
-        data["addprod_price"],
-        0,
-        stock_type,
-        data["addprod_expiry"]
-    )
-
-    await call.message.edit_text(
-        f"✅ *Product Added!*\n\n"
-        f"Name: {data['addprod_name']}\n"
-        f"ID: `{auto_id}`\n"
-        f"Price: {fmt(data['addprod_price'])}\n"
-        f"Expiry: {data['addprod_expiry']} days\n"
-        f"Stock Type: {stock_type}",
-        reply_markup=admin_kb(),
-        parse_mode="Markdown"
+    auto_id = generate_id("prod_")
+    db.add_product(auto_id, data["addprod_cat"], data["addprod_name"], data["addprod_price"], 0, stype, data["addprod_expiry"])
+    await msg.answer(
+        f"✅ *Product Added!*\n\nName: {data['addprod_name']}\nID: `{auto_id}`\nPrice: {fmt(data['addprod_price'])}\nExpiry: {data['addprod_expiry']} days\nStock Type: {stype}",
+        reply_markup=admin_kb(), parse_mode="Markdown"
     )
     await state.clear()
 
@@ -1778,7 +1705,7 @@ async def stock_add_start(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("🔑 *Add Stock*\nSelect a product:", reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_target)
 
-# Stock type selection via buttons (FIX #3 applied)
+# ★ FIXED: Now shows inline buttons for stock type instead of asking user to type ★
 @dp.callback_query(lambda c: c.data.startswith("stkprod_"))
 async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1803,19 +1730,26 @@ async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_type_choice)
 
+# ★ NEW: Handles button click for stock type selection ★
 @dp.callback_query(lambda c: c.data.startswith("stktype_"), AdminFlow.stock_type_choice)
 async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    parts = call.data.split("_", 2)
+    # parse: stktype_keyonly_{pid}  or  stktype_emailpass_{pid}
+    parts = call.data.split("_", 2)  # ["stktype", "keyonly", "{pid}"]
     if len(parts) < 3:
         return
-    chosen_type = parts[1]
+    chosen_type = parts[1]   # "keyonly" or "emailpass"
     pid = parts[2]
     prod = db.get_product(pid)
     if not prod:
         return
 
-    stock_type = "key_only" if chosen_type == "keyonly" else "email_pass"
+    # Map button type to actual stock_type
+    if chosen_type == "keyonly":
+        stock_type = "key_only"
+    else:
+        stock_type = "email_pass"
+
     await state.update_data(stock_target=pid, stock_type=stock_type)
 
     lines = [
@@ -2132,7 +2066,7 @@ async def reject_order(call: CallbackQuery):
         pass
     await call.message.edit_text(f"❌ Order #{oid} Rejected.", reply_markup=admin_kb(), parse_mode="Markdown")
 
-# ── DELIVER (Manually) ──────────────────────────────────────────────────────────
+# ── DELIVER (Manual) ──────────────────────────────────────────────────────────
 @dp.callback_query(lambda c: c.data == "admin_deliver")
 async def deliver_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -2212,7 +2146,7 @@ async def deliver_file(msg: Message, state: FSMContext):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.3 starting...")
+    print("🚀 SKY STORE BD Bot v3.2 starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
