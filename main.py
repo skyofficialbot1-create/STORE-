@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.3 — Full bug fixes: DB sync, UI refresh, global button system
+Version 3.4 — Fixed hardcoded expiry dates across all delivery messages
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -540,25 +540,19 @@ def btn(text, callback_data, style=None):
         kwargs["style"] = style.value if hasattr(style, 'value') else style
     return InlineKeyboardButton(**kwargs)
 
-# ★ FIX #1: User-side visibility — now fetches ALL active categories (including subcategories)
-# for the main menu, so newly added subcategories appear immediately
 def main_menu_kb(uid):
     kb = InlineKeyboardBuilder()
-    # Show all top-level categories AND subcategories that have products
     all_cats = db.get_all_categories()
     for cat in all_cats:
         emoji = cat.get('icon', '📦')
-        # Check if this category (or its subcategories) has products
         prods = db.get_products(cat['id'])
         subcats = db.get_categories(parent_id=cat['id'])
         has_items = len(prods) > 0
-        # Also check subcategories for products
         for sc in subcats:
             sc_prods = db.get_products(sc['id'])
             if len(sc_prods) > 0:
                 has_items = True
                 break
-        # Always show parent categories; show subcats only if they have products
         if cat.get('parent_id') is None:
             kb.button(text=f"{emoji} {cat['name']}", callback_data=f"cat_{cat['id']}", style=ButtonStyle.PRIMARY)
         elif has_items:
@@ -600,7 +594,6 @@ def admin_kb():
     kb.row(btn("🏠 Main Menu", "main_menu"))
     return kb.as_markup()
 
-# ★ FIX #2: Auto-refresh — admin_cats_kb now always fetches fresh data
 def admin_cats_kb():
     kb = InlineKeyboardBuilder()
     for cat in db.get_all_categories():
@@ -621,6 +614,21 @@ def delivery_kb(oid):
     kb = InlineKeyboardBuilder()
     kb.row(btn("✅ Approve", f"approve_{oid}", ButtonStyle.SUCCESS), btn("❌ Reject", f"reject_{oid}", ButtonStyle.DANGER))
     return kb.as_markup()
+
+
+# ★ FIX: Helper function to calculate expiry from product's actual DB value
+def get_product_expiry_days(prod, stock=None):
+    """
+    Returns the correct expiry_days by checking:
+    1. Stock record's expiry_days (most specific)
+    2. Product record's expiry_days
+    3. Fallback to 30
+    """
+    if stock and stock.get("expiry_days"):
+        return int(stock["expiry_days"])
+    if prod and prod.get("expiry_days"):
+        return int(prod["expiry_days"])
+    return 30
 
 
 # ─── PAYMENT PROCESSOR ────────────────────────────────────────────────────────
@@ -668,7 +676,8 @@ async def process_payment(
     if is_auto:
         stock = db.get_available_stock(prod["id"])
         if stock:
-            stock_expiry = stock.get("expiry_days", prod.get("expiry_days", 30))
+            # ★ FIX: Use dynamic expiry from product DB record (not hardcoded 30)
+            expiry_days = get_product_expiry_days(prod, stock)
             delivery_data = {}
             if stock["stock_type"] == "key_only":
                 delivery_data["key"] = stock["key_data"]
@@ -678,10 +687,10 @@ async def process_payment(
                 delivery_data["password"] = stock["password"]
                 cred_part = f"📧 Email: `{stock['email']}`\n🔐 Pass: `{stock['password']}`"
             delivery_data["server"] = uinput or "Auto"
-            delivery_data["expires_days"] = stock_expiry
+            delivery_data["expires_days"] = expiry_days
 
             now = now_local()
-            expiry_date = now + timedelta(days=stock_expiry)
+            expiry_date = now + timedelta(days=expiry_days)
             db.update_order(oid, "delivered", delivery_data)
 
             box_body = [
@@ -692,7 +701,7 @@ async def process_payment(
                 f"🌍 Server: {uinput or 'Auto'}",
                 "",
                 f"✅ Activated: {now.strftime('%d %b %Y %I:%M %p')}",
-                f"⏰ Validity: {stock_expiry} days",
+                f"⏰ Validity: {expiry_days} days",
                 f"📅 Expires: {expiry_date.strftime('%d %B %Y')}",
                 f"✅ Status: Active",
                 "",
@@ -815,7 +824,6 @@ async def view_category(call: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardBuilder()
         for sc in subcats:
             emoji = sc.get('icon', '📦')
-            # ★ FIX #1: Show subcategory only if it has products or its own subcategories have products
             sc_prods = db.get_products(sc['id'])
             sc_subcats = db.get_categories(parent_id=sc['id'])
             has_prods = len(sc_prods) > 0
@@ -870,6 +878,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
+            # ★ FIX: Show actual DB expiry value, not hardcoded 30
             f"⏰ Validity: {prod.get('expiry_days', 30)} days",
             "",
             "🌍 Enter your preferred server/location, or tap Auto:",
@@ -883,6 +892,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
+            # ★ FIX: Show actual DB expiry value
             f"⏰ Validity: {prod.get('expiry_days', 30)} days",
             "",
             "📧 Enter your Gmail address:",
@@ -895,6 +905,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
+            # ★ FIX: Show actual DB expiry value
             f"⏰ Validity: {prod.get('expiry_days', 30)} days",
             "",
             "📧 Enter your Gmail address:",
@@ -1492,7 +1503,6 @@ async def addcat_desc(msg: Message, state: FSMContext):
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(AdminFlow.addcat_icon)
 
-# ★ FIX #2: Category add — auto-refresh admin_cats_kb after creation
 @dp.message(AdminFlow.addcat_icon)
 async def addcat_icon(msg: Message, state: FSMContext):
     icon = msg.text.strip() if msg.text.strip().lower() != "skip" else "📦"
@@ -1511,7 +1521,6 @@ async def addcat_icon(msg: Message, state: FSMContext):
         "",
         "👇 Updated category list:",
     ]
-    # Auto-refresh: send the success message AND the updated category list
     await msg.answer("\n".join(lines), reply_markup=admin_cats_kb(), parse_mode="Markdown")
     await state.clear()
 
@@ -1668,7 +1677,6 @@ async def addprod_price(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Enter a valid number.")
 
-# ★ FIX #3: Global button system — add_product stock type now uses buttons instead of text input
 @dp.message(AdminFlow.addprod_expiry)
 async def addprod_expiry(msg: Message, state: FSMContext):
     try:
@@ -1680,7 +1688,6 @@ async def addprod_expiry(msg: Message, state: FSMContext):
 
         if parent_id in ["vpn", "proxy"] or cat_id in ["vpn", "proxy"]:
             await state.update_data(addprod_expiry=expiry)
-            # ★ BUTTON SYSTEM: Show buttons instead of asking to type
             lines = [
                 "➕ *Add Product*",
                 "",
@@ -1711,15 +1718,13 @@ async def addprod_expiry(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Enter a valid number of days.")
 
-# ★ NEW: Button handler for add product stock type
 @dp.callback_query(lambda c: c.data.startswith("addprod_stktype_"), AdminFlow.addprod_stocktype)
 async def addprod_stocktype_btn(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    # parse: addprod_stktype_keyonly_{temp_id} or addprod_stktype_emailpass_{temp_id}
-    parts = call.data.split("_", 3)  # ["addprod", "stktype", "keyonly", "{temp_id}"]
+    parts = call.data.split("_", 3)
     if len(parts) < 4:
         return
-    chosen_type = parts[2]  # "keyonly" or "emailpass"
+    chosen_type = parts[2]
     stock_type = "key_only" if chosen_type == "keyonly" else "email_pass"
 
     data = await state.get_data()
@@ -1778,7 +1783,6 @@ async def stock_add_start(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("🔑 *Add Stock*\nSelect a product:", reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_target)
 
-# Stock type selection via buttons (FIX #3 applied)
 @dp.callback_query(lambda c: c.data.startswith("stkprod_"))
 async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1839,7 +1843,6 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_input)
 
-# ── STOCK HANDLERS (Text & File) ──────────────────────────────────────────────
 @dp.message(AdminFlow.stock_input, F.text)
 async def stock_input_text(msg: Message, state: FSMContext):
     data = await state.get_data()
@@ -2081,7 +2084,7 @@ async def unban_do(msg: Message, state: FSMContext):
         await msg.answer("❌ Invalid ID.")
     await state.clear()
 
-# ── ADMIN ORDER APPROVE/REJECT ────────────────────────────────────────────────
+# ★ FIX: Approve order — now uses dynamic expiry from product DB record
 @dp.callback_query(lambda c: c.data.startswith("approve_"))
 async def approve_order(call: CallbackQuery):
     await call.answer("✅ Approving...")
@@ -2090,7 +2093,8 @@ async def approve_order(call: CallbackQuery):
     if not order:
         return
     prod = db.get_product(order["product_id"])
-    expiry_days = prod.get("expiry_days", 30) if prod else 30
+    # ★ FIX: Get expiry_days from product DB, not hardcoded 30
+    expiry_days = get_product_expiry_days(prod)
     now = now_local()
     expiry_date = now + timedelta(days=expiry_days)
     db.update_order(oid, "delivered", {
@@ -2132,7 +2136,7 @@ async def reject_order(call: CallbackQuery):
         pass
     await call.message.edit_text(f"❌ Order #{oid} Rejected.", reply_markup=admin_kb(), parse_mode="Markdown")
 
-# ── DELIVER (Manually) ──────────────────────────────────────────────────────────
+# ── DELIVER (Manual) ──────────────────────────────────────────────────────────
 @dp.callback_query(lambda c: c.data == "admin_deliver")
 async def deliver_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -2165,6 +2169,7 @@ async def deliver_oid(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Invalid Order ID.")
 
+# ★ FIX: Manual delivery — uses dynamic expiry from product DB record
 @dp.message(AdminFlow.deliver_file)
 async def deliver_file(msg: Message, state: FSMContext):
     data = await state.get_data()
@@ -2177,7 +2182,8 @@ async def deliver_file(msg: Message, state: FSMContext):
     else:
         delivery_data = {"key": delivery_text}
     prod = db.get_product(order["product_id"])
-    expiry_days = prod.get("expiry_days", 30) if prod else 30
+    # ★ FIX: Get expiry_days from product DB, not hardcoded 30
+    expiry_days = get_product_expiry_days(prod)
     now = now_local()
     expiry_date = now + timedelta(days=expiry_days)
     db.update_order(oid, "delivered", delivery_data)
@@ -2212,7 +2218,7 @@ async def deliver_file(msg: Message, state: FSMContext):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.3 starting...")
+    print("🚀 SKY STORE BD Bot v3.4 starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
