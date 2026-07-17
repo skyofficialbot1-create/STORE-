@@ -163,9 +163,9 @@ class Database:
         for cat in categories:
             conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order) VALUES(?,?,?,?,?,?)", cat)
         vpn_subs = [
-            ("nordvpn_1m", "vpn", "🔵 NordVPN 1 Month", "NordVPN monthly", "🔵", 1),
-            ("nordvpn_3m", "vpn", "🔵 NordVPN 3 Months", "NordVPN quarterly", "🔵", 2),
-            ("expressvpn_1m", "vpn", "🔴 ExpressVPN 1 Month", "ExpressVPN", "🔴", 3),
+            ("nordvpn_1m", "vpn", "🔵 NordVPN 9 day", "NordVPN monthly", "🔵", 1),
+            ("nordvpn_3m", "vpn", "🔵 HMAVPN  7 day", "NordVPN quarterly", "🔵", 2),
+            ("expressvpn_1m", "vpn", "🔴 ExpressVPN 7 day", "ExpressVPN", "🔴", 3),
         ]
         for cat in vpn_subs:
             conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order) VALUES(?,?,?,?,?,?)", cat)
@@ -173,10 +173,7 @@ class Database:
             ("yt_1m", "youtube", "▶️ YouTube Premium 1 Month", 100, 0, "manual", 30),
             ("yt_3m", "youtube", "▶️ YouTube Premium 3 Months", 200, 0, "manual", 90),
             ("nf_1m", "netflix", "🎬 Netflix Premium 1 Month", 150, 0, "manual", 30),
-            ("cr_1m", "crunchyroll", "🍿 Crunchyroll 1 Month", 200, 0, "manual", 30),
-            ("vpn_auto", "vpn", "🚀 Auto-Assign VPN (1 Month)", 350, 0, "email_pass", 30),
-            ("proxy_resi", "proxy", "🌐 Residential Proxy (30 Days)", 500, 0, "key_only", 30),
-        ]
+            ("cr_1m", "crunchyroll", "🍿 Crunchyroll 1 Month", 200, 0, "manual", 30),  ]
         for p in products:
             conn.execute("INSERT INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) VALUES(?,?,?,?,?,?,?)", p)
         conn.commit()
