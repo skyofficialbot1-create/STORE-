@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.3 — Stock expiry inheritance fix + all previous enhancements
+Version 3.4 — Fully dynamic categories (zero hardcoding)
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -118,8 +118,15 @@ class Database:
                 parent_id TEXT, name TEXT,
                 description TEXT, icon TEXT,
                 sort_order INTEGER DEFAULT 0,
-                is_active INTEGER DEFAULT 1
+                is_active INTEGER DEFAULT 1,
+                auto_deliver INTEGER DEFAULT 0
             )""")
+            # Ensure auto_deliver column exists (for upgrades from older DB)
+            try:
+                conn.execute("ALTER TABLE categories ADD COLUMN auto_deliver INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
             conn.execute("""CREATE TABLE IF NOT EXISTS products(
                 id TEXT PRIMARY KEY,
                 category_id TEXT, name TEXT,
@@ -147,36 +154,7 @@ class Database:
                 expires_at TEXT,
                 created_at TEXT DEFAULT (datetime('now','+6 hours'))
             )""")
-            cur = conn.execute("SELECT COUNT(*) FROM categories WHERE parent_id IS NULL")
-            if cur.fetchone()[0] == 0:
-                self._seed_data(conn)
             conn.commit()
-
-    def _seed_data(self, conn):
-        categories = [
-            ("youtube", None, "YouTube Premium", "Ad-free YouTube", "▶️", 1),
-            ("netflix", None, "Netflix Premium", "Premium Netflix", "🎬", 2),
-            ("crunchyroll", None, "Crunchyroll", "Anime streaming", "🍿", 3),
-            ("vpn", None, "VPN Services", "Premium VPN", "🔐", 4),
-            ("proxy", None, "Proxy Services", "Residential proxies", "🌐", 5),
-        ]
-        for cat in categories:
-            conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order) VALUES(?,?,?,?,?,?)", cat)
-        vpn_subs = [
-            ("nordvpn_1m", "vpn", "🔵 NordVPN 9 day", "NordVPN monthly", "🔵", 1),
-            ("nordvpn_3m", "vpn", "🔵 HMAVPN  7 day", "NordVPN quarterly", "🔵", 2),
-            ("expressvpn_1m", "vpn", "🔴 ExpressVPN 7 day", "ExpressVPN", "🔴", 3),
-        ]
-        for cat in vpn_subs:
-            conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order) VALUES(?,?,?,?,?,?)", cat)
-        products = [
-            ("yt_1m", "youtube", "▶️ YouTube Premium 1 Month", 100, 0, "manual", 30),
-            ("yt_3m", "youtube", "▶️ YouTube Premium 3 Months", 200, 0, "manual", 90),
-            ("nf_1m", "netflix", "🎬 Netflix Premium 1 Month", 150, 0, "manual", 30),
-            ("cr_1m", "crunchyroll", "🍿 Crunchyroll 1 Month", 200, 0, "manual", 30),  ]
-        for p in products:
-            conn.execute("INSERT INTO products(id,category_id,name,price,bonus,stock_type,expiry_days) VALUES(?,?,?,?,?,?,?)", p)
-        conn.commit()
 
     # ── Users ──
     def get_user(self, uid):
@@ -254,9 +232,9 @@ class Database:
             r = cur.fetchone()
             return dict(r) if r else None
 
-    def add_category(self, cid, parent_id, name, desc="", icon="📦", sort=0):
+    def add_category(self, cid, parent_id, name, desc="", icon="📦", sort=0, auto_deliver=0):
         with self._get_conn() as conn:
-            conn.execute("INSERT OR REPLACE INTO categories(id,parent_id,name,description,icon,sort_order) VALUES(?,?,?,?,?,?)", (cid, parent_id, name, desc, icon, sort))
+            conn.execute("INSERT OR REPLACE INTO categories(id,parent_id,name,description,icon,sort_order,auto_deliver) VALUES(?,?,?,?,?,?,?)", (cid, parent_id, name, desc, icon, sort, auto_deliver))
             conn.commit()
 
     def update_category(self, cid, **kwargs):
@@ -493,9 +471,11 @@ class AdminFlow(StatesGroup):
     addcat_name = State()
     addcat_desc = State()
     addcat_icon = State()
+    addcat_autodeliver = State()
     editcat_target = State()
     editcat_name = State()
     editcat_desc = State()
+    editcat_autodeliver = State()
     addprod_name = State()
     addprod_price = State()
     addprod_expiry = State()
@@ -619,8 +599,8 @@ async def process_payment(
     price = prod["price"]
 
     cat = db.get_category(cat_id)
-    parent_id = cat.get("parent_id") if cat else None
-    is_auto = parent_id in ["vpn", "proxy"] or cat_id in ["vpn", "proxy"]
+    # Auto-deliver if category is flagged as auto_deliver
+    is_auto = cat.get("auto_deliver", 0) == 1 if cat else False
 
     if pmethod == "Wallet Balance":
         if not db.deduct_balance(uid, price):
@@ -647,7 +627,6 @@ async def process_payment(
     if is_auto:
         stock = db.get_available_stock(prod["id"])
         if stock:
-            # Stock's expiry if set, otherwise product's expiry, fallback 30
             stock_expiry = stock.get("expiry_days") or prod.get("expiry_days", 30)
             delivery_data = {}
             if stock["stock_type"] == "key_only":
@@ -832,12 +811,11 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         return
     cat_id = prod["category_id"]
     cat = db.get_category(cat_id)
-    parent_id = cat.get("parent_id") if cat else None
     await state.update_data(order_pid=pid, order_prod=prod)
 
-    is_vpn_proxy = parent_id in ["vpn", "proxy"] or cat_id in ["vpn", "proxy"]
+    is_auto = cat.get("auto_deliver", 0) == 1 if cat else False
 
-    if is_vpn_proxy:
+    if is_auto:
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
@@ -1409,11 +1387,13 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
         return
     subcats = db.get_categories(parent_id=cat_id)
     prods = db.get_products(cat_id)
+    auto_status = "✅ Auto-Deliver" if cat.get("auto_deliver") else "❌ Manual"
     lines = [
         f"📂 *{cat.get('icon', '')} {cat['name']}*",
         f"ID: `{cat_id}`",
         f"Subcategories: {len(subcats)}",
         f"Products: {len(prods)}",
+        f"Delivery Mode: {auto_status}",
     ]
     if prods:
         lines.append("")
@@ -1421,9 +1401,22 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
             lines.append(f"• {p['name']} — {fmt(p['price'])}")
     kb = InlineKeyboardBuilder()
     kb.row(btn("✏️ Edit Name/Desc", f"editcat_{cat_id}", ButtonStyle.PRIMARY))
+    kb.row(btn("⚙️ Toggle Auto-Deliver", f"toggleauto_{cat_id}", ButtonStyle.PRIMARY))
     kb.row(btn("🗑️ Delete Category", f"delcat_{cat_id}", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back", "admin_cats"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(lambda c: c.data.startswith("toggleauto_"))
+async def toggle_auto_deliver(call: CallbackQuery):
+    await call.answer()
+    cat_id = call.data[11:]
+    cat = db.get_category(cat_id)
+    if not cat:
+        return
+    new_val = 0 if cat["auto_deliver"] else 1
+    db.update_category(cat_id, auto_deliver=new_val)
+    await admin_cat_view(call, None)  # refresh view
+    await call.answer(f"Auto-Deliver {'enabled' if new_val else 'disabled'}.")
 
 @dp.callback_query(lambda c: c.data == "addcat_start")
 async def addcat_start(call: CallbackQuery, state: FSMContext):
@@ -1466,18 +1459,35 @@ async def addcat_desc(msg: Message, state: FSMContext):
 @dp.message(AdminFlow.addcat_icon)
 async def addcat_icon(msg: Message, state: FSMContext):
     icon = msg.text.strip() if msg.text.strip().lower() != "skip" else "📦"
+    await state.update_data(addcat_icon=icon)
+    lines = [
+        "⚡ *Auto-Delivery Mode?*",
+        "",
+        "Auto-Delivery means orders for products in this category will be fulfilled instantly using stock.",
+        "Manual means orders will require admin approval.",
+        "",
+        "Type `yes` to enable auto-deliver, or `no` (or anything else) for manual."
+    ]
+    await msg.answer("\n".join(lines), parse_mode="Markdown")
+    await state.set_state(AdminFlow.addcat_autodeliver)
+
+@dp.message(AdminFlow.addcat_autodeliver)
+async def addcat_autodeliver(msg: Message, state: FSMContext):
+    auto = 1 if msg.text.strip().lower() == "yes" else 0
     data = await state.get_data()
     parent_id = data.get("addcat_parent")
     name = data["addcat_name"]
     desc = data.get("addcat_desc", "")
+    icon = data["addcat_icon"]
     auto_id = generate_id("cat_")
-    db.add_category(auto_id, parent_id, name, desc, icon)
+    db.add_category(auto_id, parent_id, name, desc, icon, auto_deliver=auto)
     lines = [
         "✅ *Category Created!*",
         "",
         f"Name: {name}",
-        f"ID: `{auto_id}` (auto-generated)",
+        f"ID: `{auto_id}`",
         f"Icon: {icon}",
+        f"Auto-Deliver: {'Yes' if auto else 'No'}",
     ]
     await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
@@ -1509,6 +1519,20 @@ async def editcat_desc(msg: Message, state: FSMContext):
     cat_id = (await state.get_data())["editcat_target"]
     if desc.lower() != "skip":
         db.update_category(cat_id, description=desc)
+    lines = [
+        "Toggle auto-deliver?",
+        "Type `yes` to enable, `no` to disable, or `skip` to leave unchanged:"
+    ]
+    await msg.answer("\n".join(lines), parse_mode="Markdown")
+    await state.set_state(AdminFlow.editcat_autodeliver)
+
+@dp.message(AdminFlow.editcat_autodeliver)
+async def editcat_autodeliver(msg: Message, state: FSMContext):
+    val = msg.text.strip().lower()
+    if val == "yes":
+        db.update_category((await state.get_data())["editcat_target"], auto_deliver=1)
+    elif val == "no":
+        db.update_category((await state.get_data())["editcat_target"], auto_deliver=0)
     await msg.answer("✅ *Category Updated!*", reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
 
@@ -1642,9 +1666,9 @@ async def addprod_expiry(msg: Message, state: FSMContext):
         data = await state.get_data()
         cat_id = data["addprod_cat"]
         cat = db.get_category(cat_id)
-        parent_id = cat.get("parent_id") if cat else None
+        is_auto = cat.get("auto_deliver", 0) == 1 if cat else False
 
-        if parent_id in ["vpn", "proxy"] or cat_id in ["vpn", "proxy"]:
+        if is_auto:
             await state.update_data(addprod_expiry=expiry)
             await msg.answer("Stock type:\n• `email_pass` — Email + Password\n• `key_only` — Just a key/code", parse_mode="Markdown")
             await state.set_state(AdminFlow.addprod_stocktype)
@@ -1763,13 +1787,13 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_input)
 
-# ★ FIXED: Stock text input now inherits product's expiry_days ★
+# ── STOCK HANDLERS (Text & File) ──────────────────────────────────────────────
 @dp.message(AdminFlow.stock_input, F.text)
 async def stock_input_text(msg: Message, state: FSMContext):
     data = await state.get_data()
     pid = data["stock_target"]
     stype = data["stock_type"]
-    prod = db.get_product(pid)  # get product for expiry
+    prod = db.get_product(pid)
     expiry = prod["expiry_days"] if prod else 30
     lines_input = [l.strip() for l in msg.text.split("\n") if l.strip()]
     added = 0
@@ -1785,7 +1809,6 @@ async def stock_input_text(msg: Message, state: FSMContext):
     await msg.answer(f"✅ {added} stock items added (expiry: {expiry} days)!", reply_markup=admin_stock_kb())
     await state.clear()
 
-# ★ FIXED: Stock file upload now inherits product's expiry_days ★
 @dp.message(AdminFlow.stock_input, F.document)
 async def stock_file_upload(msg: Message, state: FSMContext):
     data = await state.get_data()
@@ -2135,13 +2158,12 @@ async def deliver_file(msg: Message, state: FSMContext):
         pass
     await msg.answer(f"✅ Order #{oid} Delivered!", reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.3 starting...")
+    print("🚀 SKY STORE BD Bot v3.4 starting (fully dynamic categories)...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
