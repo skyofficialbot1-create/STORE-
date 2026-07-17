@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.1 — All bugs fixed
+Version 3.2 — Stock type buttons added
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -507,13 +507,13 @@ class AdminFlow(StatesGroup):
     editprod_value = State()
     stock_target = State()
     stock_input = State()
+    stock_type_choice = State()  # ★ NEW: for button-based stock type selection ★
     promo_code = State()
     promo_amount = State()
     promo_discount = State()
     promo_uses = State()
     promo_expiry = State()
     restore_file = State()
-    # ★ FIX #1: Added missing states for manual delivery ★
     deliver_oid = State()
     deliver_file = State()
 
@@ -800,12 +800,12 @@ async def view_category(call: CallbackQuery, state: FSMContext):
             kb.button(text=f"{emoji} {sc['name']}", callback_data=f"subcat_{sc['id']}", style=ButtonStyle.PRIMARY)
         kb.adjust(1)
         kb.row(btn("🔙 Main Menu", "main_menu"))
-        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a subcategory:"
+        title = f"{cat.get('icon', '📦')} *{cat['name']}\nSelect a subcategory:*"
         await call.message.edit_text(title, reply_markup=kb.as_markup(), parse_mode="Markdown")
         return
     prods = db.get_products(cat_id)
     if prods:
-        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a product:"
+        title = f"{cat.get('icon', '📦')} *{cat['name']}\nSelect a product:*"
         await call.message.edit_text(title, reply_markup=cat_products_kb(cat_id), parse_mode="Markdown")
     else:
         await call.answer("❌ No products available.", show_alert=True)
@@ -819,7 +819,7 @@ async def view_subcategory(call: CallbackQuery, state: FSMContext):
         return
     prods = db.get_products(subcat_id)
     if prods:
-        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a product:"
+        title = f"{cat.get('icon', '📦')} *{cat['name']}\nSelect a product:*"
         await call.message.edit_text(title, reply_markup=cat_products_kb(subcat_id), parse_mode="Markdown")
     else:
         await call.answer("❌ No products.", show_alert=True)
@@ -1126,7 +1126,6 @@ async def promo_apply(msg: Message, state: FSMContext):
     await msg.answer("\n".join(lines), reply_markup=main_menu_kb(uid), parse_mode="Markdown")
     await state.clear()
 
-# ★ FIX #2: Improved deposit flow — now properly captures both sender number & TrxID ★
 @dp.callback_query(lambda c: c.data == "submit_deposit")
 async def deposit_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1150,35 +1149,28 @@ async def deposit_trx_received(msg: Message, state: FSMContext):
     text = msg.text.strip()
     uid = msg.from_user.id
 
-    # Try to parse structured input: "amount sender_number TrxID" or "amount TrxID"
     parts = text.split()
     amount_str = "?"
     sender_number = "N/A"
     trx_id = "N/A"
 
     if len(parts) >= 3:
-        # Structured: amount sender_number TrxID
         amount_str = parts[0]
         sender_number = parts[1]
         trx_id = " ".join(parts[2:])
     elif len(parts) == 2:
-        # Assume: amount TrxID
         amount_str = parts[0]
         trx_id = parts[1]
     else:
-        # Single input — just capture whatever was sent
         amount_match = re.search(r'(\d+[\.]?\d*)', text)
         amount_str = amount_match.group(1) if amount_match else "?"
         trx_id = text
 
-    # Try to extract sender number from text if not already captured
     if sender_number == "N/A":
-        # Look for a Bangladesh phone number pattern (01xxxxxxxxx)
         phone_match = re.search(r'(01[3-9]\d{8})', text)
         if phone_match:
             sender_number = phone_match.group(1)
 
-    # Store in database as a pending transaction record
     db.add_transaction(
         uid,
         float(amount_str) if amount_str != "?" else 0,
@@ -1188,7 +1180,6 @@ async def deposit_trx_received(msg: Message, state: FSMContext):
         f"Sender: {sender_number} | Amount: {amount_str}"
     )
 
-    # Notify admins with full details
     admin_text = [
         "💰 *NEW DEPOSIT REQUEST*",
         "",
@@ -1287,7 +1278,6 @@ async def dash(call: CallbackQuery):
         lines.append("No sales yet.")
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
-# ★ FIX #3: Fixed Add Balance — User ID / @username parsing ★
 @dp.callback_query(lambda c: c.data == "admin_addbal")
 async def addbal_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1313,9 +1303,7 @@ async def addbal_uid_received(msg: Message, state: FSMContext):
     user = None
     uid = None
 
-    # Case 1: Try @username (with or without @)
     if text.startswith("@") or (not text.isdigit() and not text.lstrip('-').isdigit()):
-        # It's likely a username
         clean_username = text.lstrip("@")
         user = db.get_user_by_username(clean_username)
         if user:
@@ -1330,7 +1318,6 @@ async def addbal_uid_received(msg: Message, state: FSMContext):
                 parse_mode="Markdown"
             )
     else:
-        # Case 2: Numeric User ID
         try:
             uid = int(text)
             user = db.get_user(uid)
@@ -1377,7 +1364,6 @@ async def addbal_amount_received(msg: Message, state: FSMContext):
         db.add_transaction(uid, amt, "admin_add", "Admin", trx_id)
         new_bal = db.get_balance(uid)
 
-        # Notify user
         box_body = [
             f"💰 Balance Added!",
             f"Amount: {fmt(amt)}",
@@ -1719,6 +1705,7 @@ async def stock_add_start(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("🔑 *Add Stock*\nSelect a product:", reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_target)
 
+# ★ FIXED: Now shows inline buttons for stock type instead of asking user to type ★
 @dp.callback_query(lambda c: c.data.startswith("stkprod_"))
 async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -1726,25 +1713,67 @@ async def stock_target_set(call: CallbackQuery, state: FSMContext):
     prod = db.get_product(pid)
     if not prod:
         return
-    await state.update_data(stock_target=pid, stock_type=prod.get("stock_type", "key_only"))
+    await state.update_data(stock_target=pid)
     lines = [
         f"🔑 *Add Stock to:* {prod['name']}",
-        f"Stock Type: {prod.get('stock_type', 'N/A')}",
-        f"Expiry: {prod.get('expiry_days', 30)} days",
+        f"Product ID: `{pid}`",
+        f"Default Expiry: {prod.get('expiry_days', 30)} days",
         "",
-        "📤 Send items (one per line) or upload a `.txt` file.",
-        "",
-        "For email:password:",
-        "`email@example.com:password123`",
-        "",
-        "For key-only:",
-        "`ABC123XYZ`",
+        "📌 Select the type of data you want to add:",
     ]
     kb = InlineKeyboardBuilder()
+    kb.row(
+        btn("🔑 Key Only", f"stktype_keyonly_{pid}", ButtonStyle.PRIMARY),
+        btn("📧 Email & Password", f"stktype_emailpass_{pid}", ButtonStyle.PRIMARY)
+    )
     kb.row(btn("🔙 Back", "stock_add"))
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await state.set_state(AdminFlow.stock_type_choice)
+
+# ★ NEW: Handles button click for stock type selection ★
+@dp.callback_query(lambda c: c.data.startswith("stktype_"), AdminFlow.stock_type_choice)
+async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    # parse: stktype_keyonly_{pid}  or  stktype_emailpass_{pid}
+    parts = call.data.split("_", 2)  # ["stktype", "keyonly", "{pid}"]
+    if len(parts) < 3:
+        return
+    chosen_type = parts[1]   # "keyonly" or "emailpass"
+    pid = parts[2]
+    prod = db.get_product(pid)
+    if not prod:
+        return
+
+    # Map button type to actual stock_type
+    if chosen_type == "keyonly":
+        stock_type = "key_only"
+    else:
+        stock_type = "email_pass"
+
+    await state.update_data(stock_target=pid, stock_type=stock_type)
+
+    lines = [
+        f"🔑 *Add Stock to:* {prod['name']}",
+        f"Stock Type: *{stock_type}*",
+        f"Expiry: {prod.get('expiry_days', 30)} days",
+        "",
+        "📤 Now send your data (one per line) or upload a `.txt` file.",
+        "",
+    ]
+    if stock_type == "key_only":
+        lines.append("🔑 Send Key(s) — one per line:")
+        lines.append("Example: `ABC123XYZ`")
+    else:
+        lines.append("📧 Send email:password pairs — one per line:")
+        lines.append("Example: `email@example.com:password123`")
+
+    kb = InlineKeyboardBuilder()
+    kb.row(btn("🔙 Change Type", f"stkprod_{pid}", ButtonStyle.PRIMARY))
+    kb.row(btn("🔙 Back to Menu", "admin_stock"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_input)
 
+# ── STOCK HANDLERS (Text & File) ──────────────────────────────────────────────
 @dp.message(AdminFlow.stock_input, F.text)
 async def stock_input_text(msg: Message, state: FSMContext):
     data = await state.get_data()
@@ -2117,7 +2146,7 @@ async def deliver_file(msg: Message, state: FSMContext):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.1 starting...")
+    print("🚀 SKY STORE BD Bot v3.2 starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
