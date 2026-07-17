@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.4 — Fully dynamic categories (zero hardcoding)
+Version 4.0 — Hardcoded main categories with editable dynamic data
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -121,7 +121,6 @@ class Database:
                 is_active INTEGER DEFAULT 1,
                 auto_deliver INTEGER DEFAULT 0
             )""")
-            # Ensure auto_deliver column exists (for upgrades from older DB)
             try:
                 conn.execute("ALTER TABLE categories ADD COLUMN auto_deliver INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
@@ -154,7 +153,63 @@ class Database:
                 expires_at TEXT,
                 created_at TEXT DEFAULT (datetime('now','+6 hours'))
             )""")
+            # Seed main categories if not present
+            cur = conn.execute("SELECT COUNT(*) FROM categories WHERE parent_id IS NULL")
+            if cur.fetchone()[0] == 0:
+                self._seed_data(conn)
             conn.commit()
+
+    def _seed_data(self, conn):
+        # 5 main categories – hardcoded but editable via admin panel
+        main_cats = [
+            ("youtube", None, "YouTube Premium", "Ad-free YouTube", "▶️", 1, 0),
+            ("netflix", None, "Netflix Premium", "Premium Netflix", "🎬", 2, 0),
+            ("crunchyroll", None, "Crunchyroll", "Anime streaming", "🍿", 3, 0),
+            ("vpn", None, "VPN Services", "Premium VPNs", "🔐", 4, 1),       # auto_deliver=1
+            ("proxy", None, "IP / Proxy Services", "Residential proxies", "🌐", 5, 1)  # auto_deliver=1
+        ]
+        for cat in main_cats:
+            conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order,auto_deliver) VALUES(?,?,?,?,?,?,?)", cat)
+
+        # Products for YouTube
+        conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)", 
+                     ("yt_1m", "youtube", "▶️ YouTube Premium 1 Month", 100, "manual", 30))
+        
+        # Netflix
+        conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)", 
+                     ("nf_1m", "netflix", "🎬 Netflix Premium 1 Month", 200, "manual", 30))
+        
+        # Crunchyroll
+        conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)", 
+                     ("cr_7d", "crunchyroll", "🍿 Crunchyroll 7 Days", 70, "manual", 7))
+        conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)", 
+                     ("cr_1m", "crunchyroll", "🍿 Crunchyroll 1 Month", 200, "manual", 30))
+        
+        # VPN subcategories and products
+        vpn_names = ["HMA", "Nord", "Express", "G-VPN", "IPVanish"]
+        for vpn in vpn_names:
+            subcat_id = f"vpn_{vpn.lower()}"
+            conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order,auto_deliver) VALUES(?,?,?,?,?,?,?)",
+                         (subcat_id, "vpn", f"🔐 {vpn} VPN", f"{vpn} VPN Service", "🔐", 1, 1))
+            pid = f"vpn_{vpn.lower()}_7d"
+            conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)",
+                         (pid, subcat_id, f"🔐 {vpn} VPN 7 Days", 0, "email_pass", 7))
+        
+        # Proxy products
+        proxy_names = ["Rapid", "DataPlus", "ProxySeller", "ABC", "Chill", "Owl"]
+        for i, proxy in enumerate(proxy_names):
+            subcat_id = f"proxy_{proxy.lower()}"
+            conn.execute("INSERT INTO categories(id,parent_id,name,description,icon,sort_order,auto_deliver) VALUES(?,?,?,?,?,?,?)",
+                         (subcat_id, "proxy", f"🌐 {proxy} Proxy", f"{proxy} Proxy Service", "🌐", i+1, 1))
+            if proxy == "Owl":
+                pid = f"proxy_{proxy.lower()}_30d"
+                conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)",
+                             (pid, subcat_id, "🦉 Owl Proxy 30 Days", 10, "ip_port", 30))
+            else:
+                pid = f"proxy_{proxy.lower()}_30d"
+                conn.execute("INSERT INTO products(id,category_id,name,price,stock_type,expiry_days) VALUES(?,?,?,?,?,?)",
+                             (pid, subcat_id, f"🌐 {proxy} Proxy 30 Days", 500, "key_only", 30))
+        conn.commit()
 
     # ── Users ──
     def get_user(self, uid):
@@ -245,10 +300,14 @@ class Database:
             conn.commit()
 
     def delete_category(self, cid):
+        # Prevent deletion of the 5 main categories
+        if cid in ("youtube", "netflix", "crunchyroll", "vpn", "proxy"):
+            return False  # cannot delete main categories
         with self._get_conn() as conn:
             conn.execute("UPDATE categories SET is_active=0 WHERE id=?", (cid,))
             conn.execute("UPDATE products SET is_active=0 WHERE category_id=?", (cid,))
             conn.commit()
+            return True
 
     # ── Products ──
     def get_product(self, pid):
@@ -599,7 +658,7 @@ async def process_payment(
     price = prod["price"]
 
     cat = db.get_category(cat_id)
-    # Auto-deliver if category is flagged as auto_deliver
+    # Auto-deliver if category is flagged auto_deliver
     is_auto = cat.get("auto_deliver", 0) == 1 if cat else False
 
     if pmethod == "Wallet Balance":
@@ -632,10 +691,16 @@ async def process_payment(
             if stock["stock_type"] == "key_only":
                 delivery_data["key"] = stock["key_data"]
                 cred_part = f"🔑 Key: `{stock['key_data']}`"
-            else:
+            elif stock["stock_type"] == "email_pass":
                 delivery_data["email"] = stock["email"]
                 delivery_data["password"] = stock["password"]
                 cred_part = f"📧 Email: `{stock['email']}`\n🔐 Pass: `{stock['password']}`"
+            elif stock["stock_type"] == "ip_port":
+                # IP:Port:Username:Password format stored in key_data
+                delivery_data["ip_port"] = stock["key_data"]
+                cred_part = f"🌐 IP:Port:User:Pass: `{stock['key_data']}`"
+            else:
+                cred_part = "Unknown stock type"
             delivery_data["server"] = uinput or "Auto"
             delivery_data["expires_days"] = stock_expiry
 
@@ -1209,6 +1274,8 @@ async def orders(call: CallbackQuery):
                     lines.append(f"   📧 Email: `{dd['email']}`")
                 if dd.get("password"):
                     lines.append(f"   🔐 Pass: `{dd['password']}`")
+                if dd.get("ip_port"):
+                    lines.append(f"   🌐 IP:Port:User:Pass: `{dd['ip_port']}`")
                 if dd.get("expires_days"):
                     lines.append(f"   ⏰ Validity: {dd['expires_days']} days")
             lines.append("")
@@ -1402,7 +1469,9 @@ async def admin_cat_view(call: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(btn("✏️ Edit Name/Desc", f"editcat_{cat_id}", ButtonStyle.PRIMARY))
     kb.row(btn("⚙️ Toggle Auto-Deliver", f"toggleauto_{cat_id}", ButtonStyle.PRIMARY))
-    kb.row(btn("🗑️ Delete Category", f"delcat_{cat_id}", ButtonStyle.DANGER))
+    # Prevent deletion of the 5 main categories
+    if cat_id not in ("youtube", "netflix", "crunchyroll", "vpn", "proxy"):
+        kb.row(btn("🗑️ Delete Category", f"delcat_{cat_id}", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back", "admin_cats"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
@@ -1415,7 +1484,7 @@ async def toggle_auto_deliver(call: CallbackQuery):
         return
     new_val = 0 if cat["auto_deliver"] else 1
     db.update_category(cat_id, auto_deliver=new_val)
-    await admin_cat_view(call, None)  # refresh view
+    await admin_cat_view(call, None)
     await call.answer(f"Auto-Deliver {'enabled' if new_val else 'disabled'}.")
 
 @dp.callback_query(lambda c: c.data == "addcat_start")
@@ -1538,9 +1607,12 @@ async def editcat_autodeliver(msg: Message, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("delcat_"))
 async def delcat(call: CallbackQuery):
-    await call.answer("🗑️ Deleting...")
     cid = call.data[7:]
-    db.delete_category(cid)
+    success = db.delete_category(cid)
+    if not success:
+        await call.answer("❌ Cannot delete main categories.", show_alert=True)
+        return
+    await call.answer("🗑️ Deleting...")
     await call.message.edit_text(f"🗑️ Category `{cid}` deleted.", reply_markup=admin_cats_kb(), parse_mode="Markdown")
 
 # ── EDIT PRODUCT ──────────────────────────────────────────────────────────────
@@ -1670,7 +1742,7 @@ async def addprod_expiry(msg: Message, state: FSMContext):
 
         if is_auto:
             await state.update_data(addprod_expiry=expiry)
-            await msg.answer("Stock type:\n• `email_pass` — Email + Password\n• `key_only` — Just a key/code", parse_mode="Markdown")
+            await msg.answer("Stock type:\n• `email_pass` — Email + Password\n• `key_only` — Just a key/code\n• `ip_port` — IP:Port:Username:Password", parse_mode="Markdown")
             await state.set_state(AdminFlow.addprod_stocktype)
         else:
             auto_id = generate_id("prod_")
@@ -1686,8 +1758,8 @@ async def addprod_expiry(msg: Message, state: FSMContext):
 @dp.message(AdminFlow.addprod_stocktype)
 async def addprod_stocktype(msg: Message, state: FSMContext):
     stype = msg.text.strip().lower()
-    if stype not in ["email_pass", "key_only"]:
-        return await msg.answer("❌ Please type `email_pass` or `key_only`.")
+    if stype not in ["email_pass", "key_only", "ip_port"]:
+        return await msg.answer("❌ Please type `email_pass`, `key_only`, or `ip_port`.")
     data = await state.get_data()
     auto_id = generate_id("prod_")
     db.add_product(auto_id, data["addprod_cat"], data["addprod_name"], data["addprod_price"], 0, stype, data["addprod_expiry"])
@@ -1745,7 +1817,8 @@ async def stock_target_set(call: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(
         btn("🔑 Key Only", f"stktype_keyonly_{pid}", ButtonStyle.PRIMARY),
-        btn("📧 Email & Password", f"stktype_emailpass_{pid}", ButtonStyle.PRIMARY)
+        btn("📧 Email & Password", f"stktype_emailpass_{pid}", ButtonStyle.PRIMARY),
+        btn("🌐 IP:Port:User:Pass", f"stktype_ip_port_{pid}", ButtonStyle.PRIMARY)
     )
     kb.row(btn("🔙 Back", "stock_add"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1757,13 +1830,18 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     parts = call.data.split("_", 2)  # ["stktype", "keyonly", "{pid}"]
     if len(parts) < 3:
         return
-    chosen_type = parts[1]   # "keyonly" or "emailpass"
+    chosen_type = parts[1]   # "keyonly", "emailpass", or "ip" (ip_port)
     pid = parts[2]
     prod = db.get_product(pid)
     if not prod:
         return
 
-    stock_type = "key_only" if chosen_type == "keyonly" else "email_pass"
+    if chosen_type == "keyonly":
+        stock_type = "key_only"
+    elif chosen_type == "emailpass":
+        stock_type = "email_pass"
+    else:
+        stock_type = "ip_port"
     await state.update_data(stock_target=pid, stock_type=stock_type)
 
     lines = [
@@ -1777,9 +1855,12 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     if stock_type == "key_only":
         lines.append("🔑 Send Key(s) — one per line:")
         lines.append("Example: `ABC123XYZ`")
-    else:
+    elif stock_type == "email_pass":
         lines.append("📧 Send email:password pairs — one per line:")
         lines.append("Example: `email@example.com:password123`")
+    else:
+        lines.append("🌐 Send IP:Port:Username:Password — one per line:")
+        lines.append("Example: `192.168.1.1:8080:user:pass`")
 
     kb = InlineKeyboardBuilder()
     kb.row(btn("🔙 Change Type", f"stkprod_{pid}", ButtonStyle.PRIMARY))
@@ -1801,11 +1882,14 @@ async def stock_input_text(msg: Message, state: FSMContext):
         if stype == "key_only":
             db.add_stock(pid, "key_only", key_data=line, expiry_days=expiry)
             added += 1
-        else:
+        elif stype == "email_pass":
             parts = re.split(r'[:|]', line, maxsplit=1)
             if len(parts) == 2:
                 db.add_stock(pid, "email_pass", email=parts[0].strip(), password=parts[1].strip(), expiry_days=expiry)
                 added += 1
+        else:  # ip_port
+            db.add_stock(pid, "ip_port", key_data=line, expiry_days=expiry)
+            added += 1
     await msg.answer(f"✅ {added} stock items added (expiry: {expiry} days)!", reply_markup=admin_stock_kb())
     await state.clear()
 
@@ -1834,11 +1918,14 @@ async def stock_file_upload(msg: Message, state: FSMContext):
         if stype == "key_only":
             db.add_stock(pid, "key_only", key_data=line, expiry_days=expiry)
             added += 1
-        else:
+        elif stype == "email_pass":
             parts = re.split(r'[:|]', line, maxsplit=1)
             if len(parts) == 2:
                 db.add_stock(pid, "email_pass", email=parts[0].strip(), password=parts[1].strip(), expiry_days=expiry)
                 added += 1
+        else:
+            db.add_stock(pid, "ip_port", key_data=line, expiry_days=expiry)
+            added += 1
     await msg.answer(f"✅ {added} stock items added from file (expiry: {expiry} days)!", reply_markup=admin_stock_kb())
     await state.clear()
 
@@ -2111,6 +2198,7 @@ async def deliver_oid(msg: Message, state: FSMContext):
             "Enter delivery details:",
             "• For Email:Password: `email:password`",
             "• For Key only: `KEY123`",
+            "• For IP:Port:User:Pass: `192.168.1.1:8080:user:pass`",
         ]
         await msg.answer("\n".join(lines), parse_mode="Markdown")
         await state.set_state(AdminFlow.deliver_file)
@@ -2124,8 +2212,13 @@ async def deliver_file(msg: Message, state: FSMContext):
     order = db.get_order(oid)
     delivery_text = msg.text.strip()
     if ":" in delivery_text:
-        email, password = delivery_text.split(":", 1)
-        delivery_data = {"email": email.strip(), "password": password.strip()}
+        # could be email:password or IP:Port:User:Pass
+        # check if it looks like IP:Port (has dot)
+        if re.match(r'\d+\.\d+\.\d+\.\d+:\d+:', delivery_text):
+            delivery_data = {"ip_port": delivery_text}
+        else:
+            email, password = delivery_text.split(":", 1)
+            delivery_data = {"email": email.strip(), "password": password.strip()}
     else:
         delivery_data = {"key": delivery_text}
     prod = db.get_product(order["product_id"])
@@ -2136,6 +2229,8 @@ async def deliver_file(msg: Message, state: FSMContext):
     cred_part = ""
     if "key" in delivery_data:
         cred_part = f"🔑 Key: `{delivery_data['key']}`"
+    elif "ip_port" in delivery_data:
+        cred_part = f"🌐 IP:Port:User:Pass: `{delivery_data['ip_port']}`"
     else:
         cred_part = f"📧 Email: `{delivery_data['email']}`\n🔐 Pass: `{delivery_data['password']}`"
     box_body = [
@@ -2158,12 +2253,13 @@ async def deliver_file(msg: Message, state: FSMContext):
         pass
     await msg.answer(f"✅ Order #{oid} Delivered!", reply_markup=admin_kb(), parse_mode="Markdown")
     await state.clear()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.4 starting (fully dynamic categories)...")
+    print("🚀 SKY STORE BD Bot v4.0 starting (hardcoded main categories)...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
