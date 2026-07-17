@@ -1181,15 +1181,19 @@ async def admin_editprod_main(call: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
 
-@dp.callback_query(F.data.startswith("epm_"), AdminFlow.editprod_maincat)
+@dp.callback_query(lambda c: c.data.startswith("editprod_main_"))
 async def editprod_main_selected(call: CallbackQuery, state: FSMContext):
-    """Step 2: Show subcategories or products directly"""
     await call.answer()
-    raw = call.data[4:]  # Remove "epm_" prefix
-    cat_id = raw
     
+    # ব্যাক বাটনের জন্য লজিক
+    if call.data == "editprod_main_back":
+        await admin_editprod_main(call, state)
+        return
+
+    cat_id = call.data.replace("editprod_main_", "")
     cat = db.get_category(cat_id)
     if not cat:
+        await call.answer("Category not found!")
         return
     
     subcats = db.get_categories(parent_id=cat_id)
@@ -1197,9 +1201,27 @@ async def editprod_main_selected(call: CallbackQuery, state: FSMContext):
     
     await state.update_data(editprod_maincat=cat_id)
     
+    kb = InlineKeyboardBuilder()
+
     if subcats:
-        # Show subcategories
-        await state.set_state(AdminFlow.editprod_subcat)
+        for sc in subcats:
+            emoji = sc.get('icon', '📦')
+            kb.button(text=f"{emoji} {sc['name']}", callback_data=f"editprod_sub_{sc['id']}")
+    elif prods:
+        for p in prods:
+            kb.button(text=f"✏️ {p['name']}", callback_data=f"editprod_sel_{p['id']}")
+    
+    kb.adjust(1)
+    kb.row(btn("➕ Add New Product Here", f"addprod_start_{cat_id}", ButtonStyle.SUCCESS))
+    kb.row(btn("🔙 Back to Main Menu", "admin_editprod", ButtonStyle.DANGER))
+    
+    await call.message.edit_text(
+        f"📦 Editing products in: *{cat['name']}*",
+        reply_markup=kb.as_markup(),
+        parse_mode="Markdown"
+    )
+    await state.set_state(AdminFlow.editprod_select)
+
         kb = InlineKeyboardBuilder()
         for sc in subcats:
             emoji = sc.get('icon', '📦')
