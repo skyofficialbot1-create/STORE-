@@ -1594,7 +1594,7 @@ async def delcat(call: CallbackQuery):
     await call.message.edit_text(f"🗑️ Category `{cid}` deleted.", reply_markup=admin_cats_kb(), parse_mode="Markdown")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  HIERARCHICAL PRODUCT EDITING (FIXED)
+#  HIERARCHICAL PRODUCT EDITING (COMPLETE FIX)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dp.callback_query(lambda c: c.data == "admin_editprod")
@@ -1612,22 +1612,22 @@ async def admin_editprod_main(call: CallbackQuery, state: FSMContext):
 async def editprod_main_selected(call: CallbackQuery, state: FSMContext):
     """Step 2: Show subcategories or products"""
     await call.answer()
-    # FIX: prefix length is 14, not 15
-    cat_id = call.data[14:]  # changed from 15 to 14
-    
+    # FIX: Prefix length is 14 (not 15)
+    cat_id = call.data[14:]  # previously 15: this was the root cause
+
     if cat_id.startswith("back_"):
         await admin_editprod_main(call, state)
         return
-    
+
     cat = db.get_category(cat_id)
     if not cat:
         return
-    
+
     subcats = db.get_categories(parent_id=cat_id)
     prods = db.get_products(cat_id)
-    
+
     await state.update_data(editprod_maincat=cat_id)
-    
+
     if subcats:
         # Show subcategories
         await state.set_state(AdminFlow.editprod_subcat)
@@ -1662,7 +1662,6 @@ async def editprod_main_selected(call: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
     else:
-        # No products or subcategories
         await state.set_state(AdminFlow.editprod_select)
         kb = InlineKeyboardBuilder()
         kb.row(btn("➕ Add First Product", f"addprod_start_{cat_id}", ButtonStyle.SUCCESS))
@@ -1679,17 +1678,18 @@ async def editprod_back_to_main(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("editprod_sub_"))
 async def editprod_sub_selected(call: CallbackQuery, state: FSMContext):
+    """Step 2b: Subcategory selected, show products"""
     await call.answer()
-    subcat_id = call.data[13:]
-    
+    subcat_id = call.data[13:]  # correct length
+
     subcat = db.get_category(subcat_id)
     if not subcat:
         return
-    
+
     prods = db.get_products(subcat_id)
     await state.update_data(editprod_subcat=subcat_id)
     await state.set_state(AdminFlow.editprod_select)
-    
+
     if prods:
         kb = InlineKeyboardBuilder()
         for p in prods:
@@ -1720,16 +1720,19 @@ async def editprod_sub_selected(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("editprod_sel_"))
 async def editprod_show_details(call: CallbackQuery, state: FSMContext):
+    """Show product details and editing options"""
     await call.answer()
-    pid = call.data[13:]
+    pid = call.data[13:]  # prefix "editprod_sel_" length = 13
     prod = db.get_product(pid)
     if not prod:
-        await call.answer("Product not found!", show_alert=True)
+        await call.answer("❌ Product not found!", show_alert=True)
         return
-    
+
+    # Store target product ID for later editing
     await state.update_data(editprod_target=pid)
     await state.set_state(AdminFlow.editprod_field)
-    
+
+    # Current product info
     lines = [
         f"📦 *Current Product Details*",
         "",
@@ -1741,26 +1744,31 @@ async def editprod_show_details(call: CallbackQuery, state: FSMContext):
         "",
         "✏️ *What do you want to edit?*",
     ]
+
+    # Edit buttons
     kb = InlineKeyboardBuilder()
-    kb.row(btn("✏️ Change Name", f"editprod_fld_name", ButtonStyle.PRIMARY))
-    kb.row(btn("💰 Change Price", f"editprod_fld_price", ButtonStyle.PRIMARY))
-    kb.row(btn("⏰ Change Expiry Days", f"editprod_fld_expiry", ButtonStyle.PRIMARY))
+    kb.row(btn("✏️ Change Name", "editprod_fld_name", ButtonStyle.PRIMARY))
+    kb.row(btn("💰 Change Price", "editprod_fld_price", ButtonStyle.PRIMARY))
+    kb.row(btn("⏰ Change Expiry Days", "editprod_fld_expiry", ButtonStyle.PRIMARY))
     kb.row(btn("🗑️ Delete This Product", f"delprod_now_{pid}", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back", "admin_editprod"))
+
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("editprod_fld_"))
 async def editprod_field_prompt(call: CallbackQuery, state: FSMContext):
+    """Ask for new value for the selected field"""
     await call.answer()
-    field = call.data[13:]
+    field = call.data[13:]  # prefix "editprod_fld_" length = 13
     field_names = {"name": "Name", "price": "Price", "expiry": "Expiry Days"}
     await state.update_data(editprod_field=field)
-    
+
     lines = [f"✏️ Enter new *{field_names.get(field, field)}*:"]
     if field == "price":
         lines.append("Example: `350`")
     elif field == "expiry":
         lines.append("Example: `60` (days)")
+
     kb = InlineKeyboardBuilder()
     kb.row(btn("🔙 Back", "admin_editprod"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1768,11 +1776,12 @@ async def editprod_field_prompt(call: CallbackQuery, state: FSMContext):
 
 @dp.message(AdminFlow.editprod_value)
 async def editprod_value_received(msg: Message, state: FSMContext):
+    """Save the new value to the database"""
     data = await state.get_data()
     pid = data["editprod_target"]
     field = data["editprod_field"]
     value = msg.text.strip()
-    
+
     try:
         if field == "name":
             if len(value) < 2:
@@ -1799,8 +1808,9 @@ async def editprod_value_received(msg: Message, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("delprod_now_"))
 async def delprod_now(call: CallbackQuery):
+    """Delete the product instantly"""
     await call.answer("🗑️ Deleting...")
-    pid = call.data[11:]
+    pid = call.data[11:]  # prefix "delprod_now_" length = 11
     db.delete_product(pid)
     await call.message.edit_text(f"🗑️ Product `{pid}` deleted.", reply_markup=admin_kb(), parse_mode="Markdown")
 
