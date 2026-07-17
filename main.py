@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.0 — All bugs fixed + Database Backup/Restore
+Version 3.1 — All bugs fixed
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -147,7 +147,6 @@ class Database:
                 expires_at TEXT,
                 created_at TEXT DEFAULT (datetime('now','+6 hours'))
             )""")
-            # Check if data exists
             cur = conn.execute("SELECT COUNT(*) FROM categories WHERE parent_id IS NULL")
             if cur.fetchone()[0] == 0:
                 self._seed_data(conn)
@@ -190,7 +189,6 @@ class Database:
             return dict(r) if r else None
 
     def get_user_by_username(self, username):
-        """Find user by @username (without @ or with @)."""
         un = username.strip().lstrip("@")
         with self._get_conn() as conn:
             cur = conn.execute("SELECT * FROM users WHERE username=?", (un,))
@@ -441,38 +439,31 @@ class Database:
 
     # ── Backup & Restore ──
     def backup(self, backup_path=None):
-        """Create a backup of the database. Returns the backup file path."""
         if backup_path is None:
             os.makedirs(BACKUP_DIR, exist_ok=True)
             ts = now_local().strftime("%Y%m%d_%H%M%S")
             backup_path = os.path.join(BACKUP_DIR, f"store_backup_{ts}.db")
-        # Close all connections by using a fresh copy
         shutil.copy2(self.path, backup_path)
         return backup_path
 
     def restore(self, backup_path):
-        """Restore database from a backup file. Returns True on success."""
         if not os.path.exists(backup_path):
             return False
-        # Verify it's a valid SQLite db
         try:
             conn = sqlite3.connect(backup_path)
             conn.execute("SELECT COUNT(*) FROM users")
             conn.close()
         except:
             return False
-        # Replace current DB with backup
         shutil.copy2(backup_path, self.path)
         return True
 
     def export_json(self):
-        """Export full DB to JSON dict for inspection."""
         data = {}
         with self._get_conn() as conn:
             for table in ["users", "orders", "transactions", "categories", "products", "stock", "promo_codes"]:
                 cur = conn.execute(f"SELECT * FROM {table}")
                 rows = [dict(r) for r in cur.fetchall()]
-                # Convert non-serializable
                 data[table] = rows
         return data
 
@@ -485,26 +476,22 @@ dp = Dispatcher(storage=storage)
 
 # ─── STATES ───────────────────────────────────────────────────────────────────
 class OrderFlow(StatesGroup):
-    waiting_input = State()       # For initial input (email, server, etc.)
-    waiting_extra = State()       # For Crunchyroll phone number
-    waiting_tg = State()          # For Crunchyroll Telegram username
-    waiting_payment = State()     # Payment method selection
-    waiting_trxid = State()       # Transaction ID entry
+    waiting_input = State()
+    waiting_extra = State()
+    waiting_tg = State()
+    waiting_payment = State()
+    waiting_trxid = State()
 
 class DepositFlow(StatesGroup):
-    waiting_trxid = State()       # Deposit TrxID entry
-    waiting_promo = State()       # Promo code entry
+    waiting_trxid = State()
+    waiting_promo = State()
 
 class AdminFlow(StatesGroup):
-    # Add Balance
     addbal_uid = State()
     addbal_amt = State()
-    # Ban/Unban
     ban_uid = State()
     unban_uid = State()
-    # Broadcast
     broadcast_msg = State()
-    # Category
     addcat_parent = State()
     addcat_name = State()
     addcat_desc = State()
@@ -512,24 +499,23 @@ class AdminFlow(StatesGroup):
     editcat_target = State()
     editcat_name = State()
     editcat_desc = State()
-    # Product
     addprod_name = State()
     addprod_price = State()
     addprod_expiry = State()
     addprod_stocktype = State()
     editprod_field = State()
     editprod_value = State()
-    # Stock
     stock_target = State()
     stock_input = State()
-    # Promo
     promo_code = State()
     promo_amount = State()
     promo_discount = State()
     promo_uses = State()
     promo_expiry = State()
-    # Restore
     restore_file = State()
+    # ★ FIX #1: Added missing states for manual delivery ★
+    deliver_oid = State()
+    deliver_file = State()
 
 
 # ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
@@ -592,6 +578,7 @@ def admin_kb():
     kb.row(btn("📂 Categories", "admin_cats", ButtonStyle.PRIMARY), btn("📦 Edit Product", "admin_editprod", ButtonStyle.PRIMARY))
     kb.row(btn("🔑 Stock", "admin_stock", ButtonStyle.PRIMARY), btn("📨 Broadcast", "admin_broadcast", ButtonStyle.PRIMARY))
     kb.row(btn("💾 Backup DB", "admin_backup", ButtonStyle.PRIMARY), btn("🔄 Restore DB", "admin_restore", ButtonStyle.PRIMARY))
+    kb.row(btn("📦 Manual Deliver", "admin_deliver", ButtonStyle.PRIMARY))
     kb.row(btn("⛔ Ban", "admin_ban", ButtonStyle.DANGER), btn("✅ Unban", "admin_unban", ButtonStyle.SUCCESS))
     kb.row(btn("🏠 Main Menu", "main_menu"))
     return kb.as_markup()
@@ -625,7 +612,6 @@ async def process_payment(
     pmethod: str,
     trx: str,
 ):
-    """Central payment processing with auto-delivery for VPN/Proxy."""
     data = await state.get_data()
     prod = data.get("order_prod")
     if not prod:
@@ -1140,16 +1126,19 @@ async def promo_apply(msg: Message, state: FSMContext):
     await msg.answer("\n".join(lines), reply_markup=main_menu_kb(uid), parse_mode="Markdown")
     await state.clear()
 
+# ★ FIX #2: Improved deposit flow — now properly captures both sender number & TrxID ★
 @dp.callback_query(lambda c: c.data == "submit_deposit")
 async def deposit_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     lines = [
         "💳 *Submit Deposit*",
         "",
-        "Send the *amount* and *TrxID* like this:",
-        "`500 TRX1234567`",
+        "📌 Send the *amount*, *sender number*, and *TrxID* in one message like this:",
+        "`500 01742958563 TRX1234567`",
         "",
-        "Or send them separately. Admin will verify and add balance.",
+        "Format: `<amount> <sender_number> <TrxID>`",
+        "",
+        "Or send them in separate messages. First, tell us the amount:",
     ]
     kb = InlineKeyboardBuilder()
     kb.row(btn("🔙 Back", "my_wallet"))
@@ -1160,29 +1149,74 @@ async def deposit_start(call: CallbackQuery, state: FSMContext):
 async def deposit_trx_received(msg: Message, state: FSMContext):
     text = msg.text.strip()
     uid = msg.from_user.id
-    # Try to extract amount
-    amount_match = re.search(r'(\d+)', text)
-    amount_str = amount_match.group(1) if amount_match else "?"
+
+    # Try to parse structured input: "amount sender_number TrxID" or "amount TrxID"
+    parts = text.split()
+    amount_str = "?"
+    sender_number = "N/A"
+    trx_id = "N/A"
+
+    if len(parts) >= 3:
+        # Structured: amount sender_number TrxID
+        amount_str = parts[0]
+        sender_number = parts[1]
+        trx_id = " ".join(parts[2:])
+    elif len(parts) == 2:
+        # Assume: amount TrxID
+        amount_str = parts[0]
+        trx_id = parts[1]
+    else:
+        # Single input — just capture whatever was sent
+        amount_match = re.search(r'(\d+[\.]?\d*)', text)
+        amount_str = amount_match.group(1) if amount_match else "?"
+        trx_id = text
+
+    # Try to extract sender number from text if not already captured
+    if sender_number == "N/A":
+        # Look for a Bangladesh phone number pattern (01xxxxxxxxx)
+        phone_match = re.search(r'(01[3-9]\d{8})', text)
+        if phone_match:
+            sender_number = phone_match.group(1)
+
+    # Store in database as a pending transaction record
+    db.add_transaction(
+        uid,
+        float(amount_str) if amount_str != "?" else 0,
+        "deposit_pending",
+        "Manual Deposit",
+        trx_id,
+        f"Sender: {sender_number} | Amount: {amount_str}"
+    )
+
+    # Notify admins with full details
     admin_text = [
         "💰 *NEW DEPOSIT REQUEST*",
         "",
         f"👤 User ID: `{uid}`",
         f"📛 Name: {msg.from_user.first_name}",
-        f"📝 Text: `{text}`",
-        f"💵 Detected Amount: {amount_str}",
+        f"👤 Username: @{msg.from_user.username or 'N/A'}",
+        f"📝 Raw Input: `{text}`",
+        f"💵 Amount: {amount_str}",
+        f"📱 Sender Number: {sender_number}",
+        f"🔢 TrxID: {trx_id}",
         "",
-        "✅ Go to Admin Panel → Add Balance to credit this user.",
+        "✅ Go to Admin → Add Balance to credit this user.",
     ]
     for aid in ADMIN_IDS:
         try:
             await bot.send_message(aid, "\n".join(admin_text), parse_mode="Markdown")
         except:
             pass
+
     await msg.answer(
-        "✅ Your deposit request has been submitted!\n"
-        "Admin will verify and add balance shortly.\n"
+        "✅ *Deposit request submitted!*\n\n"
+        f"📝 Amount: `{amount_str}`\n"
+        f"📱 Sender: `{sender_number}`\n"
+        f"🔢 TrxID: `{trx_id}`\n\n"
+        "⏳ Admin will verify and add balance shortly.\n"
         f"📞 Contact: @{SUPPORT_USERNAME}",
-        reply_markup=main_menu_kb(uid)
+        reply_markup=main_menu_kb(uid),
+        parse_mode="Markdown"
     )
     await state.clear()
 
@@ -1253,18 +1287,20 @@ async def dash(call: CallbackQuery):
         lines.append("No sales yet.")
     await call.message.edit_text("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
 
-# ── ADD BALANCE (FIXED) ───────────────────────────────────────────────────────
+# ★ FIX #3: Fixed Add Balance — User ID / @username parsing ★
 @dp.callback_query(lambda c: c.data == "admin_addbal")
 async def addbal_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     lines = [
         "💰 *Add Balance*",
         "",
-        "Enter the user's Telegram *User ID* or *@username*:",
+        "Enter the user's Telegram *User ID* (numeric) or *@username*:",
         "",
-        "💡 To find User ID:",
-        "• Ask user to message @userinfobot",
-        "• Or look in order notifications",
+        "💡 Examples:",
+        "• Numeric ID: `123456789`",
+        "• Username: `@username` or `username`",
+        "",
+        "📌 To find User ID: ask user to message @userinfobot",
     ]
     kb = InlineKeyboardBuilder()
     kb.row(btn("🔙 Back", "admin_menu"))
@@ -1277,24 +1313,41 @@ async def addbal_uid_received(msg: Message, state: FSMContext):
     user = None
     uid = None
 
-    # Try as @username first
-    if text.startswith("@") or text.isalpha():
-        user = db.get_user_by_username(text)
+    # Case 1: Try @username (with or without @)
+    if text.startswith("@") or (not text.isdigit() and not text.lstrip('-').isdigit()):
+        # It's likely a username
+        clean_username = text.lstrip("@")
+        user = db.get_user_by_username(clean_username)
         if user:
             uid = user["user_id"]
+        else:
+            return await msg.answer(
+                "❌ *User not found by username!*\n\n"
+                "Make sure the user has started the bot at least once.\n"
+                "Try using their numeric Telegram User ID instead.\n\n"
+                "💡 Ask user to message @userinfobot to get their ID.",
+                reply_markup=admin_kb(),
+                parse_mode="Markdown"
+            )
     else:
+        # Case 2: Numeric User ID
         try:
             uid = int(text)
             user = db.get_user(uid)
-        except:
-            pass
-
-    if not user:
-        return await msg.answer(
-            "❌ User not found. Make sure the user has started the bot.\n"
-            "Try using their numeric Telegram User ID.",
-            reply_markup=admin_kb()
-        )
+            if not user:
+                return await msg.answer(
+                    f"❌ *User not found!*\n\n"
+                    f"User ID `{uid}` has never started this bot.\n"
+                    f"Make sure the user sends /start first.",
+                    reply_markup=admin_kb(),
+                    parse_mode="Markdown"
+                )
+        except ValueError:
+            return await msg.answer(
+                "❌ Invalid input. Please enter a numeric User ID or @username.",
+                reply_markup=admin_kb(),
+                parse_mode="Markdown"
+            )
 
     await state.update_data(addbal_uid=uid)
     lines = [
@@ -1303,8 +1356,9 @@ async def addbal_uid_received(msg: Message, state: FSMContext):
         f"👤 User: {user['first_name']} (@{user['username'] or 'N/A'})",
         f"🆔 ID: `{uid}`",
         f"💳 Current Balance: {fmt(user['balance'])}",
+        f"📅 Joined: {user.get('joined_at', 'N/A')}",
         "",
-        "Enter amount to add:",
+        "Enter amount to add (BDT):",
     ]
     await msg.answer("\n".join(lines), parse_mode="Markdown")
     await state.set_state(AdminFlow.addbal_amt)
@@ -1341,14 +1395,17 @@ async def addbal_amount_received(msg: Message, state: FSMContext):
         lines = [
             "✅ *Balance added successfully!*",
             "",
-            f"Amount: {fmt(amt)}",
-            f"User ID: {uid}",
+            f"Amount: +{fmt(amt)}",
+            f"User ID: `{uid}`",
+            f"Old Balance: {fmt(new_bal - amt)}",
             f"New Balance: {fmt(new_bal)}",
             f"TrxID: {trx_id}",
+            "",
+            "User has been notified ✅",
         ]
         await msg.answer("\n".join(lines), reply_markup=admin_kb(), parse_mode="Markdown")
     except ValueError:
-        await msg.answer("❌ Invalid amount. Enter a number.")
+        await msg.answer("❌ Invalid amount. Enter a number (e.g., `500`).")
     except Exception as e:
         await msg.answer(f"❌ Error: {e}")
     await state.clear()
@@ -1772,7 +1829,6 @@ async def admin_backup(call: CallbackQuery):
             f"Sending file...",
             parse_mode="Markdown"
         )
-        # Send the backup file to admin
         doc = FSInputFile(backup_path)
         await bot.send_document(
             call.from_user.id,
@@ -2061,7 +2117,7 @@ async def deliver_file(msg: Message, state: FSMContext):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.0 starting...")
+    print("🚀 SKY STORE BD Bot v3.1 starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
