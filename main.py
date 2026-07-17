@@ -566,37 +566,43 @@ def btn(text, callback_data, style=None):
 
 def admin_kb():
     kb = InlineKeyboardBuilder()
-    kb.row(btn("📊 Dashboard", "admin_dash"))
-    kb.row(btn("📁 Categories", "admin_cat"), btn("📦 Products", "admin_prod"))
-    kb.row(btn("🔑 Stock", "admin_stock"), btn("📋 Orders", "admin_orders"))
-    kb.row(btn("💰 Add Balance", "admin_addbal"), btn("📨 Broadcast", "admin_broadcast"))
-    kb.row(btn("💰 Promo", "admin_promo"))
-    kb.row(btn("⛔ Ban User", "admin_ban"), btn("✅ Unban", "admin_unban"))
-    kb.row(btn("💾 Backup", "admin_backup"), btn("🔄 Restore", "admin_restore"))
+    kb.row(btn("📊 Dashboard", "admin_dash", ButtonStyle.PRIMARY))
+    kb.row(btn("📁 Categories", "admin_cat", ButtonStyle.SECONDARY),
+           btn("📦 Products", "admin_prod", ButtonStyle.SECONDARY))
+    kb.row(btn("🔑 Stock", "admin_stock", ButtonStyle.SECONDARY),
+           btn("📋 Orders", "admin_orders", ButtonStyle.SECONDARY))
+    kb.row(btn("💰 Add Balance", "admin_addbal", ButtonStyle.PRIMARY),
+           btn("📨 Broadcast", "admin_broadcast", ButtonStyle.SECONDARY))
+    kb.row(btn("💰 Promo", "admin_promo", ButtonStyle.SECONDARY))
+    kb.row(btn("⛔ Ban User", "admin_ban", ButtonStyle.DANGER),
+           btn("✅ Unban", "admin_unban", ButtonStyle.SECONDARY))
+    kb.row(btn("💾 Backup", "admin_backup", ButtonStyle.SECONDARY),
+           btn("🔄 Restore", "admin_restore", ButtonStyle.SECONDARY))
     return kb.as_markup()
 
 def admin_stock_kb():
     kb = InlineKeyboardBuilder()
-    kb.row(btn("📊 Status", "stock_status"), btn("➕ Add Stock", "stock_add"))
-    kb.row(btn("🗑️ Delete Stock", "stock_del"))
+    kb.row(btn("📊 Status", "stock_status", ButtonStyle.SECONDARY),
+           btn("➕ Add Stock", "stock_add", ButtonStyle.PRIMARY))
+    kb.row(btn("🗑️ Delete Stock", "stock_del", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back to Admin", "admin_menu"))
     return kb.as_markup()
 
 def admin_cat_kb():
     kb = InlineKeyboardBuilder()
-    kb.row(btn("➕ Add Main Category", "cat_add_main"))
-    kb.row(btn("➕ Add Sub-Category", "cat_add_sub"))
-    kb.row(btn("📋 List Categories", "cat_list"))
-    kb.row(btn("✏️ Edit Category", "cat_edit"))
-    kb.row(btn("🗑️ Delete Category", "cat_del"))
+    kb.row(btn("➕ Add Main Category", "cat_add_main", ButtonStyle.PRIMARY))
+    kb.row(btn("➕ Add Sub-Category", "cat_add_sub", ButtonStyle.SECONDARY))
+    kb.row(btn("📋 List Categories", "cat_list", ButtonStyle.SECONDARY))
+    kb.row(btn("✏️ Edit Category", "cat_edit", ButtonStyle.SECONDARY))
+    kb.row(btn("🗑️ Delete Category", "cat_del", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back to Admin", "admin_menu"))
     return kb.as_markup()
 
 def admin_prod_kb():
     kb = InlineKeyboardBuilder()
-    kb.row(btn("➕ Add Product", "prod_add"))
-    kb.row(btn("✏️ Edit Product", "prod_edit"))
-    kb.row(btn("🗑️ Delete Product", "prod_del"))
+    kb.row(btn("➕ Add Product", "prod_add", ButtonStyle.PRIMARY))
+    kb.row(btn("✏️ Edit Product", "prod_edit", ButtonStyle.SECONDARY))
+    kb.row(btn("🗑️ Delete Product", "prod_del", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back to Admin", "admin_menu"))
     return kb.as_markup()
 
@@ -612,8 +618,8 @@ def main_menu_kb():
             icon = cat.get("icon", "📁")
             kb.button(text=f"{icon} {cat['name']}", callback_data=f"cat_{cat['id']}")
     kb.adjust(1)
-    kb.row(btn("👤 My Account", "my_account"))
-    kb.row(btn("📞 Support", "support"))
+    kb.row(btn("👤 My Account", "my_account", ButtonStyle.PRIMARY))
+    kb.row(btn("📞 Support", "support", ButtonStyle.SECONDARY))
     return kb.as_markup()
 
 
@@ -659,7 +665,7 @@ async def support_handler(call: CallbackQuery):
         "Contact us for any issues or inquiries.",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("💬 Contact Support", f"https://t.me/{SUPPORT_USERNAME}"))
+    kb.row(btn("💬 Contact Support", f"https://t.me/{SUPPORT_USERNAME}", ButtonStyle.PRIMARY))
     kb.row(back_btn())
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
@@ -680,8 +686,8 @@ async def my_account(call: CallbackQuery):
         "",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("💰 Deposit", "deposit_start"))
-    kb.row(btn("📦 My Orders", "my_orders"))
+    kb.row(btn("💰 Deposit", "deposit_start", ButtonStyle.PRIMARY))
+    kb.row(btn("📦 My Orders", "my_orders", ButtonStyle.SECONDARY))
     kb.row(back_btn())
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
@@ -751,7 +757,7 @@ async def buy_start(call: CallbackQuery, state: FSMContext):
         "Do you want to purchase this product?",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("✅ Buy Now", f"confirm_buy_{prod_id}"))
+    kb.row(btn("✅ Buy Now", f"confirm_buy_{prod_id}", ButtonStyle.PRIMARY))
     kb.row(back_btn())
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
@@ -917,9 +923,9 @@ async def deposit_amount(msg: Message, state: FSMContext):
             "Select payment method:",
         ]
         kb = InlineKeyboardBuilder()
-        kb.row(btn("💳 bkash", "dep_method_bkash"))
-        kb.row(btn("💳 Nagad", "dep_method_nagad"))
-        kb.row(btn("💳 Rocket", "dep_method_rocket"))
+        kb.row(btn("💳 bkash", "dep_method_bkash", ButtonStyle.PRIMARY))
+        kb.row(btn("💳 Nagad", "dep_method_nagad", ButtonStyle.SECONDARY))
+        kb.row(btn("💳 Rocket", "dep_method_rocket", ButtonStyle.SECONDARY))
         kb.row(btn("🔙 Back", "deposit_start"))
         await msg.answer("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
         await state.set_state(DepositFlow.method)
@@ -945,7 +951,7 @@ async def deposit_method(call: CallbackQuery, state: FSMContext):
         "After sending, enter your Transaction ID (TrxID):",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("🔙 Back", "my_account"))
+    kb.row(btn("🔙 Back", "my_account", ButtonStyle.DANGER))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(DepositFlow.trx_id)
 
@@ -975,8 +981,8 @@ async def deposit_trx(msg: Message, state: FSMContext):
         "Your balance has been updated.",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("👤 My Account", "my_account"))
-    kb.row(btn("🛍️ Browse Store", "back_to_store"))
+    kb.row(btn("👤 My Account", "my_account", ButtonStyle.PRIMARY))
+    kb.row(btn("🛍️ Browse Store", "back_to_store", ButtonStyle.SECONDARY))
     await msg.answer("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     
     # Notify admins
@@ -1254,9 +1260,10 @@ async def cat_edit_selected(call: CallbackQuery, state: FSMContext):
         "What do you want to edit?",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("✏️ Name", "editcat_field_name"))
-    kb.row(btn("📝 Description", "editcat_field_desc"))
-    kb.row(btn("🟢 Active", "editcat_field_active_on"), btn("🔴 Inactive", "editcat_field_active_off"))
+    kb.row(btn("✏️ Name", "editcat_field_name", ButtonStyle.SECONDARY))
+    kb.row(btn("📝 Description", "editcat_field_desc", ButtonStyle.SECONDARY))
+    kb.row(btn("🟢 Active", "editcat_field_active_on", ButtonStyle.PRIMARY),
+           btn("🔴 Inactive", "editcat_field_active_off", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back", "cat_edit"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.editcat_field)
@@ -1295,7 +1302,7 @@ async def cat_del_select(call: CallbackQuery, state: FSMContext):
     lines = ["🗑️ *Delete Category*", "", "⚠️ This will also delete all sub-categories and products!", "", "Select category:"]
     kb = InlineKeyboardBuilder()
     for cat in cats:
-        kb.button(text=f"🗑️ {cat['name']}", callback_data=f"delcat_{cat['id']}")
+        kb.button(text=f"🗑️ {cat['name']}", callback_data=f"delcat_{cat['id']}", style=ButtonStyle.DANGER)
     kb.adjust(1)
     kb.row(btn("🔙 Back", "admin_cat"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1313,7 +1320,8 @@ async def cat_del_confirm(call: CallbackQuery, state: FSMContext):
         "All sub-categories and products will be deleted.",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("✅ Yes, Delete", f"delcat_do_{cat_id}"), btn("❌ No", "admin_cat"))
+    kb.row(btn("✅ Yes, Delete", f"delcat_do_{cat_id}", ButtonStyle.DANGER),
+           btn("❌ No", "admin_cat", ButtonStyle.SECONDARY))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data.startswith("delcat_do_"))
@@ -1409,8 +1417,8 @@ async def prod_add_expiry(msg: Message, state: FSMContext):
     ]
     kb = InlineKeyboardBuilder()
     kb.row(
-        btn("🔑 Key Only", "addprod_stktype_keyonly"),
-        btn("📧 Email & Pass", "addprod_stktype_emailpass")
+        btn("🔑 Key Only", "addprod_stktype_keyonly", ButtonStyle.PRIMARY),
+        btn("📧 Email & Pass", "addprod_stktype_emailpass", ButtonStyle.PRIMARY)
     )
     kb.row(btn("🔙 Back", "admin_prod"))
     await msg.answer("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1483,10 +1491,11 @@ async def prod_edit_selected(call: CallbackQuery, state: FSMContext):
         "What do you want to edit?",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("✏️ Name", "editprod_field_name"))
-    kb.row(btn("💰 Price", "editprod_field_price"))
-    kb.row(btn("⏰ Expiry", "editprod_field_expiry"))
-    kb.row(btn("🟢 Active", "editprod_field_active_on"), btn("🔴 Inactive", "editprod_field_active_off"))
+    kb.row(btn("✏️ Name", "editprod_field_name", ButtonStyle.SECONDARY))
+    kb.row(btn("💰 Price", "editprod_field_price", ButtonStyle.SECONDARY))
+    kb.row(btn("⏰ Expiry", "editprod_field_expiry", ButtonStyle.SECONDARY))
+    kb.row(btn("🟢 Active", "editprod_field_active_on", ButtonStyle.PRIMARY),
+           btn("🔴 Inactive", "editprod_field_active_off", ButtonStyle.DANGER))
     kb.row(btn("🔙 Back", "prod_edit"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.editprod_field)
@@ -1554,7 +1563,7 @@ async def prod_del_select(call: CallbackQuery, state: FSMContext):
     lines = ["🗑️ *Delete Product*", ""]
     kb = InlineKeyboardBuilder()
     for p in prods:
-        kb.button(text=f"🗑️ {p['name']}", callback_data=f"delprod_{p['id']}")
+        kb.button(text=f"🗑️ {p['name']}", callback_data=f"delprod_{p['id']}", style=ButtonStyle.DANGER)
     kb.adjust(1)
     kb.row(btn("🔙 Back", "admin_prod"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1618,8 +1627,8 @@ async def stock_target_set(call: CallbackQuery, state: FSMContext):
     ]
     kb = InlineKeyboardBuilder()
     kb.row(
-        btn("🔑 Key Only", f"stktype_keyonly_{pid}"),
-        btn("📧 Email & Password", f"stktype_emailpass_{pid}")
+        btn("🔑 Key Only", f"stktype_keyonly_{pid}", ButtonStyle.PRIMARY),
+        btn("📧 Email & Password", f"stktype_emailpass_{pid}", ButtonStyle.PRIMARY)
     )
     kb.row(btn("🔙 Back", "stock_add"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1657,7 +1666,7 @@ async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
         lines.append("Example: `email@example.com:password123`")
 
     kb = InlineKeyboardBuilder()
-    kb.row(btn("🔙 Change Type", f"stkprod_{pid}"))
+    kb.row(btn("🔙 Change Type", f"stkprod_{pid}", ButtonStyle.PRIMARY))
     kb.row(btn("🔙 Back to Menu", "admin_stock"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_input)
@@ -1723,7 +1732,7 @@ async def stock_del_list(call: CallbackQuery):
         status = "✅" if s['is_used'] else "📦"
         display = s.get('key_data') or s.get('email') or f"ID:{s['id']}"
         text = f"{status} #{s['id']} {display[:25]}"
-        kb.button(text=text, callback_data=f"delstock_{s['id']}")
+        kb.button(text=text, callback_data=f"delstock_{s['id']}", style=(ButtonStyle.DANGER if not s['is_used'] else ButtonStyle.SECONDARY))
     kb.adjust(1)
     kb.row(btn("🔙 Back", "admin_stock"))
     await call.message.edit_text("🗑️ *Select stock to delete:*", reply_markup=kb.as_markup(), parse_mode="Markdown")
@@ -1778,8 +1787,9 @@ async def review_order(call: CallbackQuery):
         "Actions:",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("✅ Approve", f"approve_{oid}"), btn("❌ Reject", f"reject_{oid}"))
-    kb.row(btn("📦 Manual Deliver", f"manual_deliver_{oid}"))
+    kb.row(btn("✅ Approve", f"approve_{oid}", ButtonStyle.PRIMARY),
+           btn("❌ Reject", f"reject_{oid}", ButtonStyle.DANGER))
+    kb.row(btn("📦 Manual Deliver", f"manual_deliver_{oid}", ButtonStyle.SECONDARY))
     kb.row(btn("🔙 Back", "admin_orders"))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
 
@@ -1982,7 +1992,7 @@ async def admin_restore_prompt(call: CallbackQuery, state: FSMContext):
         "The file should be a valid SQLite database.",
     ]
     kb = InlineKeyboardBuilder()
-    kb.row(btn("🔙 Cancel", "admin_menu"))
+    kb.row(btn("🔙 Cancel", "admin_menu", ButtonStyle.DANGER))
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.restore_file)
 
