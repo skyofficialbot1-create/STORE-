@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SKY STORE BD — Premium Digital Store Telegram Bot
-Version 3.5 — Critical fixes: broken buttons, sub-category visibility, expiry dates
+Version 3.4 — Fixed hardcoded expiry dates across all delivery messages
 """
 import asyncio, os, sys, sqlite3, json, re, random, string, shutil
 from datetime import datetime, timedelta
@@ -248,20 +248,8 @@ class Database:
 
     def get_all_categories(self):
         with self._get_conn() as conn:
-            cur = conn.execute("SELECT * FROM categories WHERE is_active=1 ORDER BY sort_order, parent_id")
+            cur = conn.execute("SELECT * FROM categories WHERE is_active=1 ORDER BY sort_order")
             return [dict(r) for r in cur.fetchall()]
-
-    # ★ FIX #2: New method — checks if a category (or any of its sub-categories) has active products
-    def has_any_products(self, cat_id):
-        """Returns True if this category or any sub-category has at least one active product."""
-        prods = self.get_products(cat_id)
-        if len(prods) > 0:
-            return True
-        subcats = self.get_categories(parent_id=cat_id)
-        for sc in subcats:
-            if self.has_any_products(sc["id"]):
-                return True
-        return False
 
     def get_category(self, cid):
         with self._get_conn() as conn:
@@ -552,22 +540,22 @@ def btn(text, callback_data, style=None):
         kwargs["style"] = style.value if hasattr(style, 'value') else style
     return InlineKeyboardButton(**kwargs)
 
-# ★ FIX #2: Main menu now uses has_any_products() for recursive sub-category check
 def main_menu_kb(uid):
     kb = InlineKeyboardBuilder()
     all_cats = db.get_all_categories()
-    # Show only parent categories that have at least one product somewhere in their tree
-    parent_cats = [c for c in all_cats if c.get('parent_id') is None]
-    for cat in parent_cats:
+    for cat in all_cats:
         emoji = cat.get('icon', '📦')
-        # Check if this parent has any products (direct or in any sub-category)
-        if db.has_any_products(cat['id']):
+        prods = db.get_products(cat['id'])
+        subcats = db.get_categories(parent_id=cat['id'])
+        has_items = len(prods) > 0
+        for sc in subcats:
+            sc_prods = db.get_products(sc['id'])
+            if len(sc_prods) > 0:
+                has_items = True
+                break
+        if cat.get('parent_id') is None:
             kb.button(text=f"{emoji} {cat['name']}", callback_data=f"cat_{cat['id']}", style=ButtonStyle.PRIMARY)
-    # Also show sub-categories that have products directly (for quick access)
-    sub_cats = [c for c in all_cats if c.get('parent_id') is not None]
-    for cat in sub_cats:
-        if db.has_any_products(cat['id']):
-            emoji = cat.get('icon', '📦')
+        elif has_items:
             kb.button(text=f"{emoji} {cat['name']}", callback_data=f"cat_{cat['id']}", style=ButtonStyle.PRIMARY)
     kb.adjust(2)
     kb.row(
@@ -628,8 +616,14 @@ def delivery_kb(oid):
     return kb.as_markup()
 
 
-# ★ Helper: get correct expiry_days from DB
+# ★ FIX: Helper function to calculate expiry from product's actual DB value
 def get_product_expiry_days(prod, stock=None):
+    """
+    Returns the correct expiry_days by checking:
+    1. Stock record's expiry_days (most specific)
+    2. Product record's expiry_days
+    3. Fallback to 30
+    """
     if stock and stock.get("expiry_days"):
         return int(stock["expiry_days"])
     if prod and prod.get("expiry_days"):
@@ -682,6 +676,7 @@ async def process_payment(
     if is_auto:
         stock = db.get_available_stock(prod["id"])
         if stock:
+            # ★ FIX: Use dynamic expiry from product DB record (not hardcoded 30)
             expiry_days = get_product_expiry_days(prod, stock)
             delivery_data = {}
             if stock["stock_type"] == "key_only":
@@ -817,7 +812,6 @@ async def go_main(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text(welcome, reply_markup=main_menu_kb(call.from_user.id), parse_mode="Markdown")
 
 # ── CATEGORIES ────────────────────────────────────────────────────────────────
-# ★ FIX #2: view_category now uses has_any_products() to decide which sub-categories to show
 @dp.callback_query(lambda c: c.data.startswith("cat_"))
 async def view_category(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -830,9 +824,15 @@ async def view_category(call: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardBuilder()
         for sc in subcats:
             emoji = sc.get('icon', '📦')
-            # ★ FIX: Show sub-category if it has ANY products (direct or in sub-sub-categories)
-            if db.has_any_products(sc['id']):
-                kb.button(text=f"{emoji} {sc['name']}", callback_data=f"cat_{sc['id']}", style=ButtonStyle.PRIMARY)
+            sc_prods = db.get_products(sc['id'])
+            sc_subcats = db.get_categories(parent_id=sc['id'])
+            has_prods = len(sc_prods) > 0
+            for ssc in sc_subcats:
+                if len(db.get_products(ssc['id'])) > 0:
+                    has_prods = True
+                    break
+            if has_prods or len(sc_subcats) > 0:
+                kb.button(text=f"{emoji} {sc['name']}", callback_data=f"subcat_{sc['id']}", style=ButtonStyle.PRIMARY)
         kb.adjust(1)
         kb.row(btn("🔙 Main Menu", "main_menu"))
         title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a subcategory:"
@@ -844,6 +844,20 @@ async def view_category(call: CallbackQuery, state: FSMContext):
         await call.message.edit_text(title, reply_markup=cat_products_kb(cat_id), parse_mode="Markdown")
     else:
         await call.answer("❌ No products available.", show_alert=True)
+
+@dp.callback_query(lambda c: c.data.startswith("subcat_"))
+async def view_subcategory(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    subcat_id = call.data[7:]
+    cat = db.get_category(subcat_id)
+    if not cat:
+        return
+    prods = db.get_products(subcat_id)
+    if prods:
+        title = f"{cat.get('icon', '📦')} *{cat['name']}*\nSelect a product:"
+        await call.message.edit_text(title, reply_markup=cat_products_kb(subcat_id), parse_mode="Markdown")
+    else:
+        await call.answer("❌ No products.", show_alert=True)
 
 # ── ORDER FLOW ────────────────────────────────────────────────────────────────
 @dp.callback_query(lambda c: c.data.startswith("order_"))
@@ -864,6 +878,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
+            # ★ FIX: Show actual DB expiry value, not hardcoded 30
             f"⏰ Validity: {prod.get('expiry_days', 30)} days",
             "",
             "🌍 Enter your preferred server/location, or tap Auto:",
@@ -877,6 +892,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
+            # ★ FIX: Show actual DB expiry value
             f"⏰ Validity: {prod.get('expiry_days', 30)} days",
             "",
             "📧 Enter your Gmail address:",
@@ -889,6 +905,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
         lines = [
             f"📦 *{prod['name']}*",
             f"💰 Price: {fmt(prod['price'])}",
+            # ★ FIX: Show actual DB expiry value
             f"⏰ Validity: {prod.get('expiry_days', 30)} days",
             "",
             "📧 Enter your Gmail address:",
@@ -1701,8 +1718,7 @@ async def addprod_expiry(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Enter a valid number of days.")
 
-# ★ FIX #1: Removed AdminFlow.addprod_stocktype state filter to catch the callback globally
-@dp.callback_query(lambda c: c.data.startswith("addprod_stktype_"))
+@dp.callback_query(lambda c: c.data.startswith("addprod_stktype_"), AdminFlow.addprod_stocktype)
 async def addprod_stocktype_btn(call: CallbackQuery, state: FSMContext):
     await call.answer()
     parts = call.data.split("_", 3)
@@ -1791,8 +1807,7 @@ async def stock_target_set(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
     await state.set_state(AdminFlow.stock_type_choice)
 
-# ★ FIX #1: Removed AdminFlow.stock_type_choice state filter to catch globally
-@dp.callback_query(lambda c: c.data.startswith("stktype_"))
+@dp.callback_query(lambda c: c.data.startswith("stktype_"), AdminFlow.stock_type_choice)
 async def stock_type_chosen(call: CallbackQuery, state: FSMContext):
     await call.answer()
     parts = call.data.split("_", 2)
@@ -2069,6 +2084,7 @@ async def unban_do(msg: Message, state: FSMContext):
         await msg.answer("❌ Invalid ID.")
     await state.clear()
 
+# ★ FIX: Approve order — now uses dynamic expiry from product DB record
 @dp.callback_query(lambda c: c.data.startswith("approve_"))
 async def approve_order(call: CallbackQuery):
     await call.answer("✅ Approving...")
@@ -2077,6 +2093,7 @@ async def approve_order(call: CallbackQuery):
     if not order:
         return
     prod = db.get_product(order["product_id"])
+    # ★ FIX: Get expiry_days from product DB, not hardcoded 30
     expiry_days = get_product_expiry_days(prod)
     now = now_local()
     expiry_date = now + timedelta(days=expiry_days)
@@ -2152,6 +2169,7 @@ async def deliver_oid(msg: Message, state: FSMContext):
     except:
         await msg.answer("❌ Invalid Order ID.")
 
+# ★ FIX: Manual delivery — uses dynamic expiry from product DB record
 @dp.message(AdminFlow.deliver_file)
 async def deliver_file(msg: Message, state: FSMContext):
     data = await state.get_data()
@@ -2164,6 +2182,7 @@ async def deliver_file(msg: Message, state: FSMContext):
     else:
         delivery_data = {"key": delivery_text}
     prod = db.get_product(order["product_id"])
+    # ★ FIX: Get expiry_days from product DB, not hardcoded 30
     expiry_days = get_product_expiry_days(prod)
     now = now_local()
     expiry_date = now + timedelta(days=expiry_days)
@@ -2199,7 +2218,7 @@ async def deliver_file(msg: Message, state: FSMContext):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("🚀 SKY STORE BD Bot v3.5 starting...")
+    print("🚀 SKY STORE BD Bot v3.4 starting...")
     dp.message.outer_middleware(BanCheckMiddleware())
     dp.callback_query.outer_middleware(BanCheckMiddleware())
     try:
