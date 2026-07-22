@@ -37,7 +37,7 @@ except ImportError as e:
     from aiogram.enums.button_style import ButtonStyle
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
-BOT_TOKEN = "8897904364:AAGB-6rKp-hkNM9Zc0fbDn4Z9jG-SVRe4xk"
+BOT_TOKEN = "8897904364:AAFZb_mqyi_M-zLFet7Xz82GJw8A1nKJeTo"
 ADMIN_IDS = [7689218221]
 SUPPORT_USERNAME = "FBSKYSUPPORT"
 TIMEZONE_OFFSET = 6  # Bangladesh (BST)
